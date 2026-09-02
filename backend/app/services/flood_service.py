@@ -12,9 +12,17 @@ Full algorithm implementations, GDAL/Rasterio bindings, and Sentinel ingestion
 will be integrated once satellite data sources and GIS libraries are established.
 """
 
+import os
+import math
+import glob
+from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
+import rasterio
+import pyproj
+
 from app.schemas.flood import (
+    RasterBoundingBox,
     RasterMetadata,
     WaterDetectionConfig,
     PermanentWaterMaskConfig,
@@ -36,6 +44,221 @@ class BaseRasterProcessor(ABC):
     def extract_bands(self, source_path: str, band_names: List[str]) -> Dict[str, Any]:
         """Extract requested spectral bands (e.g., Green, NIR, SWIR) as normalized numerical arrays."""
         pass
+
+
+SENTINEL2_ALIASES = {
+    "GREEN": "B03",
+    "NIR": "B08",
+    "RED": "B04",
+    "BLUE": "B02",
+    "SWIR": "B11",
+    "SWIR2": "B12",
+}
+
+
+class GeoTIFFRasterProcessor(BaseRasterProcessor):
+    """Concrete raster processor for GeoTIFF imagery using Rasterio and PyProj.
+
+    Supports:
+    - Single multi-band or single-band GeoTIFF scenes (.tif, .tiff)
+    - Sentinel-2 band directories containing individual band GeoTIFFs (e.g. B03.tif, B08.tif)
+    - Full metadata validation (CRS, affine transform, dimensions, spatial resolution)
+    - Strict georeferencing validation (rejects unreferenced rasters)
+    - Band extraction with standard Sentinel-2 naming and aliases (B03/GREEN, B08/NIR)
+    """
+
+    def read_metadata(self, source_path: str) -> RasterMetadata:
+        """Extract spatial reference, dimensions, resolution, and band inventory from raster source."""
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Raster source path does not exist: '{source_path}'")
+
+        if os.path.isdir(source_path):
+            return self._read_directory_metadata(source_path)
+        else:
+            return self._read_file_metadata(source_path)
+
+    def _read_file_metadata(self, file_path: str) -> RasterMetadata:
+        with rasterio.open(file_path) as src:
+            # 1. Georeferencing validation
+            if src.crs is None:
+                raise ValueError(f"Raster '{file_path}' is not georeferenced: CRS metadata is missing.")
+            if src.transform is None or src.transform.is_identity:
+                raise ValueError(f"Raster '{file_path}' is not georeferenced: affine transform is missing or identity.")
+
+            # 2. Dimensions
+            width_px = src.width
+            height_px = src.height
+
+            # 3. CRS and Bounding Box
+            crs_str = src.crs.to_string() if src.crs else "UNKNOWN"
+            if src.crs.is_geographic or crs_str in ("EPSG:4326", "OGC:CRS84"):
+                min_lon = float(src.bounds.left)
+                min_lat = float(src.bounds.bottom)
+                max_lon = float(src.bounds.right)
+                max_lat = float(src.bounds.top)
+            else:
+                try:
+                    transformer = pyproj.Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+                    xs = [src.bounds.left, src.bounds.right, src.bounds.right, src.bounds.left]
+                    ys = [src.bounds.bottom, src.bounds.bottom, src.bounds.top, src.bounds.top]
+                    lons, lats = transformer.transform(xs, ys)
+                    min_lon = float(min(lons))
+                    min_lat = float(min(lats))
+                    max_lon = float(max(lons))
+                    max_lat = float(max(lats))
+                except Exception as e:
+                    raise ValueError(f"Failed to project raster bounding box to WGS84: {str(e)}")
+
+            # Validate coordinate bounds are within valid WGS84 range
+            if not (-180.0 <= min_lon <= 180.0 and -180.0 <= max_lon <= 180.0 and
+                    -90.0 <= min_lat <= 90.0 and -90.0 <= max_lat <= 90.0):
+                raise ValueError(
+                    f"Derived bounding box out of valid WGS84 range: [{min_lon}, {min_lat}, {max_lon}, {max_lat}]"
+                )
+
+            bbox = RasterBoundingBox(
+                min_lon=round(min_lon, 6),
+                min_lat=round(min_lat, 6),
+                max_lon=round(max_lon, 6),
+                max_lat=round(max_lat, 6),
+            )
+
+            # 4. Spatial resolution in meters
+            res_x, _ = src.res
+            if src.crs.is_projected:
+                resolution_meters = round(float(res_x), 2)
+            else:
+                center_lat = (min_lat + max_lat) / 2.0
+                resolution_meters = round(float(res_x * 111320.0 * math.cos(math.radians(center_lat))), 2)
+
+            if resolution_meters <= 0.0:
+                resolution_meters = 10.0
+
+            # 5. Available bands
+            available_bands = []
+            if src.descriptions and any(src.descriptions):
+                available_bands = [d for d in src.descriptions if d]
+            elif src.count == 2:
+                available_bands = ["B03", "B08"]
+            else:
+                available_bands = [f"BAND_{i}" for i in range(1, src.count + 1)]
+
+            scene_id = Path(file_path).stem
+
+            return RasterMetadata(
+                scene_id=scene_id,
+                sensor="Sentinel-2",
+                crs=crs_str,
+                bbox=bbox,
+                width_px=width_px,
+                height_px=height_px,
+                resolution_meters=resolution_meters,
+                available_bands=available_bands,
+            )
+
+    def _read_directory_metadata(self, dir_path: str) -> RasterMetadata:
+        band_files = sorted(glob.glob(os.path.join(dir_path, "*.tif*")))
+        if not band_files:
+            raise FileNotFoundError(f"No GeoTIFF files (*.tif, *.tiff) found in directory: '{dir_path}'")
+
+        # Read spatial attributes from first band file
+        first_band = band_files[0]
+        meta = self._read_file_metadata(first_band)
+
+        # Detect band names from filenames in directory
+        discovered_bands = []
+        for bf in band_files:
+            stem = Path(bf).stem.upper()
+            matched = False
+            for b in ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B09", "B11", "B12", "GREEN", "NIR", "RED", "BLUE"]:
+                if b in stem:
+                    discovered_bands.append(b)
+                    matched = True
+                    break
+            if not matched:
+                discovered_bands.append(stem)
+
+        scene_id = Path(dir_path).name
+        return RasterMetadata(
+            scene_id=scene_id,
+            sensor="Sentinel-2",
+            crs=meta.crs,
+            bbox=meta.bbox,
+            width_px=meta.width_px,
+            height_px=meta.height_px,
+            resolution_meters=meta.resolution_meters,
+            available_bands=discovered_bands,
+        )
+
+    def extract_bands(self, source_path: str, band_names: List[str]) -> Dict[str, Any]:
+        """Extract requested spectral bands as numpy arrays."""
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Raster source path does not exist: '{source_path}'")
+
+        if os.path.isdir(source_path):
+            return self._extract_bands_from_directory(source_path, band_names)
+        else:
+            return self._extract_bands_from_file(source_path, band_names)
+
+    def _extract_bands_from_file(self, file_path: str, band_names: List[str]) -> Dict[str, Any]:
+        extracted = {}
+        with rasterio.open(file_path) as src:
+            meta = self._read_file_metadata(file_path)
+            avail = meta.available_bands
+
+            # Build lookup from band name to 1-based band index
+            band_lookup = {}
+            for i, name in enumerate(avail, start=1):
+                band_lookup[name.upper()] = i
+                for alias, target in SENTINEL2_ALIASES.items():
+                    if target.upper() == name.upper():
+                        band_lookup[alias] = i
+
+            if src.count >= 2:
+                band_lookup.setdefault("B03", 1)
+                band_lookup.setdefault("GREEN", 1)
+                band_lookup.setdefault("B08", 2)
+                band_lookup.setdefault("NIR", 2)
+
+            for req_name in band_names:
+                normalized_name = req_name.upper()
+                idx = band_lookup.get(normalized_name)
+                if idx is None:
+                    raise KeyError(
+                        f"Requested band '{req_name}' not available in raster '{file_path}'. "
+                        f"Available bands: {avail}"
+                    )
+                extracted[req_name] = src.read(idx)
+
+        return extracted
+
+    def _extract_bands_from_directory(self, dir_path: str, band_names: List[str]) -> Dict[str, Any]:
+        extracted = {}
+        band_files = sorted(glob.glob(os.path.join(dir_path, "*.tif*")))
+        if not band_files:
+            raise FileNotFoundError(f"No GeoTIFF files found in directory: '{dir_path}'")
+
+        for req_name in band_names:
+            normalized_name = req_name.upper()
+            target_code = SENTINEL2_ALIASES.get(normalized_name, normalized_name)
+
+            matched_file = None
+            for bf in band_files:
+                stem = Path(bf).stem.upper()
+                if target_code in stem or normalized_name in stem:
+                    matched_file = bf
+                    break
+
+            if not matched_file:
+                raise KeyError(
+                    f"Requested band '{req_name}' (target '{target_code}') not found in directory '{dir_path}'."
+                )
+
+            with rasterio.open(matched_file) as src:
+                extracted[req_name] = src.read(1)
+
+        return extracted
+
 
 
 class BaseWaterDetector(ABC):

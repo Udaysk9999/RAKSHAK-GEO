@@ -42,6 +42,20 @@ class RasterMetadata(BaseModel):
     available_bands: List[str] = Field(default_factory=list, description="List of band names in the raster")
 
 
+class SatelliteSceneContract(BaseModel):
+    """Specification contract for satellite scene ingestion."""
+    scene_path: str = Field(..., description="Path to GeoTIFF file or Sentinel-2 band directory")
+    pilot_area: str = Field(default="Ahmedabad", description="Target pilot region")
+    required_bands: List[str] = Field(
+        default_factory=lambda: ["B03", "B08"],
+        description="Required spectral bands for water detection (e.g. B03 Green, B08 NIR)"
+    )
+    expected_crs: Optional[str] = Field(
+        default=None,
+        description="Expected CRS (e.g. EPSG:4326 or EPSG:32643 UTM Zone 43N)"
+    )
+
+
 class WaterDetectionConfig(BaseModel):
     """Configuration parameters for spectral water classification."""
     index_type: SpectralIndexType = Field(default=SpectralIndexType.NDWI, description="Index formula to use")
