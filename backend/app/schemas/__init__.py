@@ -11,6 +11,15 @@ from .optimization import (
     ResourceOptimizationResponse,
     OptimizationStatusResponse,
 )
+from .what_if import (
+    ZoneModifier,
+    ScenarioChanges,
+    WhatIfSimulateRequest,
+    ResourceDelta,
+    ZoneAllocationComparison,
+    SimulationSummary,
+    WhatIfSimulateResponse,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -23,4 +32,11 @@ __all__ = [
     "OptimizationSummary",
     "ResourceOptimizationResponse",
     "OptimizationStatusResponse",
+    "ZoneModifier",
+    "ScenarioChanges",
+    "WhatIfSimulateRequest",
+    "ResourceDelta",
+    "ZoneAllocationComparison",
+    "SimulationSummary",
+    "WhatIfSimulateResponse",
 ]
