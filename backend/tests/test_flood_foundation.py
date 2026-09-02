@@ -4,8 +4,15 @@ Validates data schemas, contracts, and pipeline interface readiness.
 Uses Python's standard unittest framework to execute without external test runners.
 """
 
+import os
+import sys
 import unittest
+from pathlib import Path
 from pydantic import ValidationError
+
+backend_dir = Path(__file__).resolve().parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from app.schemas.flood import (
     SpectralIndexType,

@@ -32,11 +32,26 @@ Status:
     - Computes granular zone-level and resource-level comparative deltas
     - Evaluates overall fulfillment rate shift and deterministic narrative verdict
   - Test Suite: 22/22 PASSED across all optimization and what-if test suites
+- Phase 1 Step 2 & 3 Satellite, Raster & NDWI Foundation: **COMPLETED & OPERATIONAL**
+  - Implementation:
+    - `GeoTIFFRasterProcessor` (`backend/app/services/flood_service.py`): Concrete raster reader using `rasterio` and `pyproj`
+    - `NDWIWaterDetector` (`backend/app/services/flood_service.py`): Concrete surface-water detector implementing McFeeters NDWI formula: `(Green - NIR) / (Green + NIR)`
+    - `SatelliteSceneContract` & `SurfaceWaterMaskResult` (`backend/app/schemas/flood.py`): Typed Pydantic schemas for input contracts and water-mask results
+    - Band validation: Rigorous shape, dimensionality, CRS, resolution, and bounding-box alignment validation between B03 and B08
+    - Division-by-zero safety: Zero-denominator pixels guarded and set to NaN without runtime exceptions
+    - Nodata safety: Nodata pixels strictly masked out (never classified as water)
+    - Deterministic classification: `NDWI >= threshold -> 1 (water)`, `NDWI < threshold -> 0 (non-water)`
+    - Metadata preservation: Preserves CRS, affine transform, dimensions, bounds, resolution in `SurfaceWaterMaskResult`
+    - Step 3 Boundary: Pure surface-water mask; permanent-water subtraction is strictly deferred to Step 4
+  - Test Suite: 27/27 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`), 49/49 repository-wide
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
 - Synthetic Resources: explicitly tagged as `DEMO DATA`
+- Satellite Test Fixtures: strictly ephemeral in-memory/tempfile fixtures for unit tests; no fake imagery stored
 
 ## Ready Next Tasks
+- **Phase 1 Step 4**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate flood water from baseline water bodies
 - **T-016**: Add Future Response Gap Timeline
 - **T-017**: GIS Zone Detail Panel
+
