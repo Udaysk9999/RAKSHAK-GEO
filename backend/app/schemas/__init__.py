@@ -11,6 +11,20 @@ from .optimization import (
     ResourceOptimizationResponse,
     OptimizationStatusResponse,
 )
+
+from .flood import (
+    SpectralIndexType,
+    RasterBoundingBox,
+    RasterMetadata,
+    WaterDetectionConfig,
+    PermanentWaterMaskConfig,
+    FloodExtentMetrics,
+    GeoJSONGeometry,
+    GeoJSONFeature,
+    GeoJSONFeatureCollection,
+    FloodExtentResponse,
+)
+
 from .what_if import (
     ZoneModifier,
     ScenarioChanges,
@@ -32,6 +46,18 @@ __all__ = [
     "OptimizationSummary",
     "ResourceOptimizationResponse",
     "OptimizationStatusResponse",
+
+    "SpectralIndexType",
+    "RasterBoundingBox",
+    "RasterMetadata",
+    "WaterDetectionConfig",
+    "PermanentWaterMaskConfig",
+    "FloodExtentMetrics",
+    "GeoJSONGeometry",
+    "GeoJSONFeature",
+    "GeoJSONFeatureCollection",
+    "FloodExtentResponse",
+
     "ZoneModifier",
     "ScenarioChanges",
     "WhatIfSimulateRequest",
