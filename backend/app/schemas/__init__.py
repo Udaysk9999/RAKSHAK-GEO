@@ -11,6 +11,18 @@ from .optimization import (
     ResourceOptimizationResponse,
     OptimizationStatusResponse,
 )
+from .flood import (
+    SpectralIndexType,
+    RasterBoundingBox,
+    RasterMetadata,
+    WaterDetectionConfig,
+    PermanentWaterMaskConfig,
+    FloodExtentMetrics,
+    GeoJSONGeometry,
+    GeoJSONFeature,
+    GeoJSONFeatureCollection,
+    FloodExtentResponse,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -23,4 +35,15 @@ __all__ = [
     "OptimizationSummary",
     "ResourceOptimizationResponse",
     "OptimizationStatusResponse",
+    "SpectralIndexType",
+    "RasterBoundingBox",
+    "RasterMetadata",
+    "WaterDetectionConfig",
+    "PermanentWaterMaskConfig",
+    "FloodExtentMetrics",
+    "GeoJSONGeometry",
+    "GeoJSONFeature",
+    "GeoJSONFeatureCollection",
+    "FloodExtentResponse",
 ]
+
