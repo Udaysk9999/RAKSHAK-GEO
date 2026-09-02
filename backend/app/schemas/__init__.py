@@ -20,6 +20,15 @@ from .what_if import (
     SimulationSummary,
     WhatIfSimulateResponse,
 )
+from .timeline import (
+    HourlyGrowthRule,
+    TimeStepProjection,
+    FutureGapTimelineRequest,
+    ZoneGapPoint,
+    TimelinePoint,
+    TimelineSummary,
+    FutureGapTimelineResponse,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -39,4 +48,11 @@ __all__ = [
     "ZoneAllocationComparison",
     "SimulationSummary",
     "WhatIfSimulateResponse",
+    "HourlyGrowthRule",
+    "TimeStepProjection",
+    "FutureGapTimelineRequest",
+    "ZoneGapPoint",
+    "TimelinePoint",
+    "TimelineSummary",
+    "FutureGapTimelineResponse",
 ]

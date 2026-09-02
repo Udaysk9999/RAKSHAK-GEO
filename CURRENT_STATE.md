@@ -4,10 +4,10 @@ Last updated: September 2, 2026
 
 ## Overall Progress
 
-Phase: Phase 1 — Step 4 (T-015 Completed)
+Phase: Phase 1 — Step 5 (T-016 Completed)
 
 Status:
-██████░░░░ 60%
+███████░░░ 70%
 
 ## Working / Verified in Repository
 
@@ -18,25 +18,28 @@ Status:
   - Endpoints: `POST /api/v1/optimization/allocate`, `POST /api/v1/optimization/optimize`, `GET /api/v1/optimization/status`, `GET /api/v1/optimization/sample-payload`
   - Fully tested deterministic multi-criteria allocation solver
 - T-015 What-If Simulation Engine: **COMPLETED & OPERATIONAL**
+  - Endpoints: `POST /api/v1/what-if/simulate`, `GET /api/v1/what-if/sample-payload`
+  - Granular comparative scenario shifts (baseline vs. simulated)
+- T-016 Future Response Gap Timeline: **COMPLETED & OPERATIONAL**
   - Endpoints:
-    - `POST /api/v1/what-if/simulate` — Primary What-If scenario simulation endpoint
-    - `GET /api/v1/what-if/sample-payload` — Sample reinforcement scenario (`DEMO DATA`)
-  - Simulation Features:
-    - Reuses T-014 optimization engine directly for baseline and simulated runs
-    - Supports available stockpile deltas and overrides
-    - Supports zone demand deltas and overrides
-    - Supports zone local capacity shifts (clinic destruction/reinforcement)
-    - Supports zone priority and severity score modifications
-    - Preserves baseline data immutability (`copy.deepcopy`)
-    - Enforces all T-014 capacity, demand, and non-negativity invariants
-    - Computes granular zone-level and resource-level comparative deltas
-    - Evaluates overall fulfillment rate shift and deterministic narrative verdict
-  - Test Suite: 22/22 PASSED across all optimization and what-if test suites
+    - `POST /api/v1/future-gap/timeline` — Deterministic future timeline projection
+    - `GET /api/v1/future-gap/sample-payload` — Sample 24h timeline scenario (`DEMO DATA`)
+  - Projection Features:
+    - Deterministic planning model (NOT ML/AI forecast)
+    - Configurable time horizons (e.g. 0h, 6h, 12h, 18h, 24h)
+    - Linear additive and compounding demand growth rules
+    - Local facility capacity decay/degradation modeling
+    - Discrete time-step adjustments and stockpile changes
+    - Strict response gap definition: `max(0, demand - local_capacity)`
+    - Reuses T-014 optimization engine across horizons
+    - Preserves baseline immutability and T-014 invariants
+    - Computes trend trajectory (EXPANDING / CONTRACTING / STABLE) and peak gap metrics
+  - Test Suite: 34/34 PASSED across all optimization, what-if, and timeline test suites
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
 - Synthetic Resources: explicitly tagged as `DEMO DATA`
 
 ## Ready Next Tasks
-- **T-016**: Add Future Response Gap Timeline
 - **T-017**: GIS Zone Detail Panel
+- **T-018**: LLM Copilot
