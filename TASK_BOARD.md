@@ -2,16 +2,11 @@
 
 ## 🔴 IN PROGRESS
 
-*(None — T-014 completed and verified)*
+*(None — T-015 completed and verified)*
 
 ---
 
 ## 🟡 READY
-
-### T-015 — Connect Optimization API to What-If Simulator
-Owner: UNASSIGNED
-Status: READY
-Depends on: T-014
 
 ### T-016 — Add Future Response Gap Timeline
 Owner: FRIEND-1
@@ -30,7 +25,7 @@ Depends on: T-010
 ### T-018 — LLM Copilot
 Owner: UNASSIGNED
 Status: BLOCKED
-Depends on: T-015, T-016
+Depends on: T-016
 
 ---
 
@@ -44,3 +39,4 @@ T-005 — Need engine
 T-006 — Capacity engine
 T-007 — Response Gap engine
 T-014 — Resource Optimization API
+T-015 — Connect Optimization API to What-If Simulator

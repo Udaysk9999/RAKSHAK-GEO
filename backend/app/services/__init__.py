@@ -1,5 +1,6 @@
 """Service layer initialization for CITYSHIELD GIS."""
 from .optimization_service import ResourceOptimizationService
+feature/future-response-gap
 from .flood_service import (
     BaseRasterProcessor,
     BaseWaterDetector,
@@ -19,3 +20,8 @@ __all__ = [
     "FloodDetectionPipeline",
 ]
 
+
+from .what_if_service import WhatIfSimulationService
+
+__all__ = ["ResourceOptimizationService", "WhatIfSimulationService"]
+main
