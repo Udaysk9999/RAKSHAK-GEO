@@ -17,7 +17,8 @@ import math
 import glob
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
 import rasterio
 import pyproj
 
@@ -25,6 +26,7 @@ from app.schemas.flood import (
     RasterBoundingBox,
     RasterMetadata,
     WaterDetectionConfig,
+    SurfaceWaterMaskResult,
     PermanentWaterMaskConfig,
     FloodExtentMetrics,
     GeoJSONFeatureCollection,
@@ -278,6 +280,207 @@ class BaseWaterDetector(ABC):
     def classify_water(self, index_array: Any, threshold: float) -> Any:
         """Classify raster pixels as water (1) or non-water (0) based on threshold."""
         pass
+
+
+class NDWIWaterDetector(BaseWaterDetector):
+    """Concrete surface-water detector implementing McFeeters Normalized Difference Water Index (NDWI).
+
+    Scientific Formula:
+        NDWI = (Green - NIR) / (Green + NIR)
+        For Sentinel-2: Green = B03, NIR = B08
+
+    Deterministic Classification:
+        NDWI >= threshold -> water (1)
+        NDWI < threshold  -> non-water (0)
+        Nodata / Division-by-Zero / NaN -> non-water (0)
+
+    Guarantees:
+        - Division by zero is safely guarded (zero denominator yields NaN and 0 in mask).
+        - Nodata pixels are masked out and cannot accidentally become water.
+        - Preserves input raster spatial metadata (CRS, transform, dimensions, bounds, resolution).
+        - Strictly detects surface water; does NOT subtract permanent water (deferred to Step 4).
+    """
+
+    def validate_band_alignment(
+        self,
+        band_green: Any,
+        band_nir: Any,
+        meta_green: Optional[RasterMetadata] = None,
+        meta_nir: Optional[RasterMetadata] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Validate shape, dimensionality, and spatial metadata compatibility of Green and NIR bands."""
+        green_arr = np.asarray(band_green)
+        nir_arr = np.asarray(band_nir)
+
+        # Squeeze 3D single-band raster arrays (e.g. from rasterio read)
+        if green_arr.ndim == 3 and green_arr.shape[0] == 1:
+            green_arr = green_arr[0]
+        if nir_arr.ndim == 3 and nir_arr.shape[0] == 1:
+            nir_arr = nir_arr[0]
+
+        if green_arr.ndim != 2 or nir_arr.ndim != 2:
+            raise ValueError(
+                f"Expected 2D raster band arrays, but received Green ndim={green_arr.ndim} and NIR ndim={nir_arr.ndim}."
+            )
+
+        if green_arr.shape != nir_arr.shape:
+            raise ValueError(
+                f"Raster shape mismatch between B03 Green {green_arr.shape} and B08 NIR {nir_arr.shape}."
+            )
+
+        # Validate spatial metadata compatibility if provided
+        if meta_green is not None and meta_nir is not None:
+            if meta_green.crs != meta_nir.crs:
+                raise ValueError(
+                    f"CRS mismatch: B03 Green CRS '{meta_green.crs}' != B08 NIR CRS '{meta_nir.crs}'."
+                )
+            if abs(meta_green.resolution_meters - meta_nir.resolution_meters) > 1e-3:
+                raise ValueError(
+                    f"Resolution mismatch: B03 ({meta_green.resolution_meters}m) != B08 ({meta_nir.resolution_meters}m)."
+                )
+            if meta_green.width_px != meta_nir.width_px or meta_green.height_px != meta_nir.height_px:
+                raise ValueError(
+                    f"Pixel dimension mismatch: B03 ({meta_green.width_px}x{meta_green.height_px}) != "
+                    f"B08 ({meta_nir.width_px}x{meta_nir.height_px})."
+                )
+            if (
+                abs(meta_green.bbox.min_lon - meta_nir.bbox.min_lon) > 1e-4
+                or abs(meta_green.bbox.max_lat - meta_nir.bbox.max_lat) > 1e-4
+            ):
+                raise ValueError(
+                    f"Geospatial bounding box mismatch between B03 ({meta_green.bbox}) and B08 ({meta_nir.bbox})."
+                )
+
+        return green_arr, nir_arr
+
+    def compute_index(
+        self,
+        band_green: Any,
+        band_nir_or_swir: Any,
+        config: Optional[WaterDetectionConfig] = None,
+    ) -> np.ndarray:
+        """Calculate NDWI = (Green - NIR) / (Green + NIR) with safe division and nodata masking."""
+        if config is None:
+            config = WaterDetectionConfig()
+
+        green_arr, nir_arr = self.validate_band_alignment(band_green, band_nir_or_swir)
+
+        # Cast to float32 for continuous floating point division
+        green = green_arr.astype(np.float32, copy=False)
+        nir = nir_arr.astype(np.float32, copy=False)
+
+        # Identify invalid / nodata pixels
+        nodata_mask = np.isnan(green) | np.isnan(nir) | np.isinf(green) | np.isinf(nir)
+        if config.nodata_value is not None:
+            nodata_mask = (
+                nodata_mask
+                | np.isclose(green, config.nodata_value)
+                | np.isclose(nir, config.nodata_value)
+            )
+
+        numerator = green - nir
+        denominator = green + nir
+
+        # Guard division by zero: where denominator is close to 0.0 or pixel is nodata
+        valid_denom = (~nodata_mask) & (np.abs(denominator) > 1e-7)
+
+        ndwi = np.full(green.shape, np.nan, dtype=np.float32)
+        np.divide(numerator, denominator, out=ndwi, where=valid_denom)
+
+        # Clip numerical precision spillover to theoretical index range [-1.0, 1.0]
+        valid_indices = ~np.isnan(ndwi)
+        ndwi[valid_indices] = np.clip(ndwi[valid_indices], -1.0, 1.0)
+
+        return ndwi
+
+    def classify_water(
+        self,
+        index_array: Any,
+        threshold: float = 0.0,
+        nodata_mask: Optional[Any] = None,
+    ) -> np.ndarray:
+        """Classify NDWI array into binary water mask (1=water, 0=non-water) deterministically."""
+        idx = np.asarray(index_array)
+        water_mask = np.zeros(idx.shape, dtype=np.uint8)
+
+        # Valid pixels must be finite and not flagged as nodata
+        valid_pixels = ~np.isnan(idx) & ~np.isinf(idx)
+        if nodata_mask is not None:
+            valid_pixels = valid_pixels & (~np.asarray(nodata_mask, dtype=bool))
+
+        # NDWI >= threshold -> water (1), else non-water (0)
+        water_condition = valid_pixels & (idx >= threshold)
+        water_mask[water_condition] = 1
+        water_mask[~water_condition] = 0
+
+        return water_mask
+
+    def detect_water_from_bands(
+        self,
+        band_green: Any,
+        band_nir: Any,
+        metadata: RasterMetadata,
+        config: Optional[WaterDetectionConfig] = None,
+        transform: Optional[Any] = None,
+    ) -> SurfaceWaterMaskResult:
+        """Execute NDWI calculation and water classification, preserving complete raster metadata."""
+        if config is None:
+            config = WaterDetectionConfig()
+
+        ndwi = self.compute_index(band_green, band_nir, config)
+        water_mask = self.classify_water(ndwi, threshold=config.threshold)
+
+        total_pixels = int(water_mask.size)
+        valid_pixels = int(np.sum(~np.isnan(ndwi)))
+        nodata_pixels = total_pixels - valid_pixels
+        water_pixels = int(np.sum(water_mask == 1))
+        water_fraction = (
+            round(float(water_pixels / valid_pixels), 6) if valid_pixels > 0 else 0.0
+        )
+
+        transform_tuple = None
+        if transform is not None:
+            if hasattr(transform, "to_gdal"):
+                transform_tuple = tuple(transform.to_gdal())
+            elif isinstance(transform, (tuple, list)):
+                transform_tuple = tuple(transform)
+
+        return SurfaceWaterMaskResult(
+            scene_id=metadata.scene_id,
+            metadata=metadata,
+            water_mask=water_mask,
+            ndwi_array=ndwi,
+            threshold=config.threshold,
+            total_pixels=total_pixels,
+            valid_pixels=valid_pixels,
+            water_pixels=water_pixels,
+            water_fraction=water_fraction,
+            nodata_pixels=nodata_pixels,
+            transform=transform_tuple,
+        )
+
+    def detect_water_from_scene(
+        self,
+        scene_path: str,
+        raster_processor: BaseRasterProcessor,
+        config: Optional[WaterDetectionConfig] = None,
+    ) -> SurfaceWaterMaskResult:
+        """Ingest a satellite scene, extract B03/B08, and compute surface water mask."""
+        if config is None:
+            config = WaterDetectionConfig()
+
+        metadata = raster_processor.read_metadata(scene_path)
+        bands = raster_processor.extract_bands(scene_path, ["B03", "B08"])
+        return self.detect_water_from_bands(
+            band_green=bands["B03"],
+            band_nir=bands["B08"],
+            metadata=metadata,
+            config=config,
+        )
+
+
+# Alias for backward and forward compatibility
+SpectralWaterDetector = NDWIWaterDetector
 
 
 class BasePermanentWaterMasker(ABC):

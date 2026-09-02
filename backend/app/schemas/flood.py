@@ -65,6 +65,28 @@ class WaterDetectionConfig(BaseModel):
         le=1.0,
         description="Index threshold above which pixel is classified as water (typically >= 0.0)"
     )
+    nodata_value: Optional[float] = Field(
+        default=None,
+        description="Optional nodata value to ignore during calculation (e.g. 0.0, -9999.0)"
+    )
+
+
+class SurfaceWaterMaskResult(BaseModel):
+    """Result of spectral surface water detection on a satellite scene."""
+    model_config = {"arbitrary_types_allowed": True}
+
+    scene_id: str = Field(..., description="Source scene identifier")
+    metadata: RasterMetadata = Field(..., description="Spatial metadata of source raster")
+    water_mask: Any = Field(..., description="Binary 2D numpy array (1=water, 0=non-water, uint8)")
+    ndwi_array: Optional[Any] = Field(None, description="2D float32 NDWI array with NaN for nodata/invalid")
+    threshold: float = Field(default=0.0, description="Configured NDWI threshold used for classification")
+    total_pixels: int = Field(..., description="Total pixel count of the raster scene")
+    valid_pixels: int = Field(..., description="Count of valid (non-nodata) pixels")
+    water_pixels: int = Field(..., description="Count of classified surface-water pixels")
+    water_fraction: float = Field(..., description="Ratio of water pixels to valid pixels (0.0 to 1.0)")
+    nodata_pixels: int = Field(default=0, description="Count of masked nodata pixels")
+    transform: Optional[Tuple[float, ...]] = Field(None, description="Affine transformation coefficients")
+
 
 
 class PermanentWaterMaskConfig(BaseModel):

@@ -32,17 +32,18 @@ Status:
     - Computes granular zone-level and resource-level comparative deltas
     - Evaluates overall fulfillment rate shift and deterministic narrative verdict
   - Test Suite: 22/22 PASSED across all optimization and what-if test suites
-- Phase 1 Step 2 Satellite & Raster Foundation: **COMPLETED & OPERATIONAL**
+- Phase 1 Step 2 & 3 Satellite, Raster & NDWI Foundation: **COMPLETED & OPERATIONAL**
   - Implementation:
     - `GeoTIFFRasterProcessor` (`backend/app/services/flood_service.py`): Concrete raster reader using `rasterio` and `pyproj`
-    - `SatelliteSceneContract` (`backend/app/schemas/flood.py`): Input specification schema for optical satellite scenes
-    - Georeferencing verification: Mandatory CRS validation & affine transform validation (rejects unreferenced imagery)
-    - Multi-band and directory support: Parses multi-band GeoTIFF chips and Sentinel-2 band folders
-    - Optical Band Support: Ingests Green (`B03`) and NIR (`B08`) required for NDWI calculation
-    - Spatial Extent: Reprojects UTM Zone 43N (Ahmedabad) coordinates to WGS84 bounding box
-    - Pipeline wiring: Integrates with `FloodDetectionPipeline` readiness checks
-  - Data Structure: `data/satellite/{raw, processed, test}` with `README.md` input specifications
-  - Test Suite: 16/16 PASSED across `test_flood_foundation.py` and `test_raster_ingestion.py` (38/38 repository-wide)
+    - `NDWIWaterDetector` (`backend/app/services/flood_service.py`): Concrete surface-water detector implementing McFeeters NDWI formula: `(Green - NIR) / (Green + NIR)`
+    - `SatelliteSceneContract` & `SurfaceWaterMaskResult` (`backend/app/schemas/flood.py`): Typed Pydantic schemas for input contracts and water-mask results
+    - Band validation: Rigorous shape, dimensionality, CRS, resolution, and bounding-box alignment validation between B03 and B08
+    - Division-by-zero safety: Zero-denominator pixels guarded and set to NaN without runtime exceptions
+    - Nodata safety: Nodata pixels strictly masked out (never classified as water)
+    - Deterministic classification: `NDWI >= threshold -> 1 (water)`, `NDWI < threshold -> 0 (non-water)`
+    - Metadata preservation: Preserves CRS, affine transform, dimensions, bounds, resolution in `SurfaceWaterMaskResult`
+    - Step 3 Boundary: Pure surface-water mask; permanent-water subtraction is strictly deferred to Step 4
+  - Test Suite: 27/27 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`), 49/49 repository-wide
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
@@ -50,6 +51,7 @@ Status:
 - Satellite Test Fixtures: strictly ephemeral in-memory/tempfile fixtures for unit tests; no fake imagery stored
 
 ## Ready Next Tasks
-- **Phase 1 Step 3**: Implement NDWI Surface Water Classification (`BaseWaterDetector`) on extracted B03/B08 bands
+- **Phase 1 Step 4**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate flood water from baseline water bodies
 - **T-016**: Add Future Response Gap Timeline
-- **T-017**: GIS Zone Detail Panel
+- **T-017**: GIS Zone Detail Panel
+
