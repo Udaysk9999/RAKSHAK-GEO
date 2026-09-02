@@ -43,6 +43,16 @@ from .timeline import (
     TimelineSummary,
     FutureGapTimelineResponse,
 )
+from .gis import (
+    ImpactLevel,
+    BuildingFootprint,
+    WardZoneGeometry,
+    BuildingImpactDetail,
+    ZoneImpactResult,
+    GISImpactSummary,
+    FloodImpactRequest,
+    FloodImpactResponse,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -82,4 +92,13 @@ __all__ = [
     "TimelinePoint",
     "TimelineSummary",
     "FutureGapTimelineResponse",
+
+    "ImpactLevel",
+    "BuildingFootprint",
+    "WardZoneGeometry",
+    "BuildingImpactDetail",
+    "ZoneImpactResult",
+    "GISImpactSummary",
+    "FloodImpactRequest",
+    "FloodImpactResponse",
 ]

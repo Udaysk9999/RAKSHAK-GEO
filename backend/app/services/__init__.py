@@ -10,6 +10,7 @@ from .flood_service import (
     BaseGeoJSONExporter,
     FloodDetectionPipeline,
 )
+from .gis_service import GISFloodImpactService
 
 __all__ = [
     "ResourceOptimizationService",
@@ -21,4 +22,5 @@ __all__ = [
     "BaseFloodExtentAnalyzer",
     "BaseGeoJSONExporter",
     "FloodDetectionPipeline",
+    "GISFloodImpactService",
 ]

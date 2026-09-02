@@ -2,21 +2,16 @@
 
 ## 🔴 IN PROGRESS
 
-*(None — T-016 completed and verified)*
+*(None — T-017 completed and verified)*
 
 ---
 
 ## 🟡 READY
 
-### T-017 — GIS Zone Detail Panel
-Owner: FRIEND-2
-Status: READY
-Depends on: T-010
-
 ### T-018 — LLM Copilot
 Owner: UNASSIGNED
 Status: READY
-Depends on: T-015, T-016
+Depends on: T-015, T-016, T-017
 
 ---
 
@@ -38,3 +33,4 @@ T-007 — Response Gap engine
 T-014 — Resource Optimization API
 T-015 — Connect Optimization API to What-If Simulator
 T-016 — Add Future Response Gap Timeline
+T-017 — Flood Impact + GIS Zone Intelligence
