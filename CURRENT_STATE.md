@@ -4,16 +4,32 @@ Last updated: September 3, 2026
 
 ## Overall Progress
 
-Phase: Phase 1 — Step 7 (T-018 Completed)
+Phase: Phase 1 — Step 8 (T-019 Completed)
 
 Status:
-█████████░ 90%
+█████████▌ 95%
 
 ## Working / Verified in Repository
 
 ### Backend Core
 - FastAPI Core Framework: OPERATIONAL (`backend/app/main.py`)
 - Health Check: OPERATIONAL (`GET /api/health`)
+
+### PostGIS & City GIS Data Foundation (T-019)
+- Configuration: OPERATIONAL (`backend/app/core/config.py`, PostgreSQL/PostGIS settings)
+- Connectivity Diagnostics: OPERATIONAL (`backend/app/db/session.py`, graceful fallback to seed fixtures when live DB offline)
+- Spatial Schemas & Models: OPERATIONAL (`backend/app/schemas/city_gis.py`)
+  - Wards / Administrative Zones: Polygon/MultiPolygon (`WardZoneGeometry`)
+  - Buildings & Infrastructure: Point/Polygon (`BuildingFootprint`)
+  - Emergency Hospitals: Point/Polygon (`HospitalFacility`)
+  - Evacuation Shelters: Point/Polygon (`ShelterFacility`)
+  - Road Network & Evacuation Corridors: LineString/MultiLineString (`RoadSegment`)
+  - Demographics & Population: (`PopulationDemographic`)
+  - City Metadata & Dataset Lineage: (`CityMetadata`, `DatasetSource`)
+- PostGIS DDL Migration Script: OPERATIONAL (`backend/app/db/init_db.sql` with GiST spatial indexes and foreign keys)
+- City Dataset Repository: `data/city/` with `raw/`, `processed/`, and `test/` layout
+- Data Access Repository Layer: OPERATIONAL (`CityGISRepository` in `backend/app/services/city_gis_repository.py`)
+- Endpoints: `GET /api/v1/city-data/status`, `GET /api/v1/city-data/summary`, `GET /api/v1/city-data/wards`, `GET /api/v1/city-data/buildings`, `GET /api/v1/city-data/hospitals`, `GET /api/v1/city-data/shelters`, `GET /api/v1/city-data/roads`, `GET /api/v1/city-data/population`, `GET /api/v1/city-data/resources`
 
 ### Satellite Imagery & Flood Detection Pipeline (Friend 1 Foundation)
 - Foundation & Schemas: OPERATIONAL (`backend/app/schemas/flood.py`)
@@ -43,7 +59,7 @@ Status:
   - Reuses `GISFloodImpactService` and `ResourceOptimizationService` directly without logic duplication
 
 ### Test Suite
-- Total Tests: **79/79 PASSED, 0 FAILURES** across all repository test suites (Flood, Raster Ingestion, NDWI Detection, GIS Impact, Optimization, What-If, Timeline, End-to-End Pipeline)
+- Total Tests: **88/88 PASSED, 0 FAILURES** across all repository test suites (City GIS Data Foundation, End-to-End Pipeline, GIS Impact, Optimization, What-If, Timeline, Flood Detection, Raster Ingestion, NDWI Detection)
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
@@ -52,4 +68,4 @@ Status:
 
 ## Ready Next Tasks
 - **Phase 1 Step 4 (Flood Pipeline)**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate newly flooded areas from baseline water bodies
-- **T-019**: LLM Copilot integration connecting to optimization, timeline, and GIS impact endpoints
+- **T-020**: LLM Copilot integration connecting to optimization, timeline, and GIS impact endpoints

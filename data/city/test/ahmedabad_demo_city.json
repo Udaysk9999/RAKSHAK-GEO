@@ -1,0 +1,231 @@
+{
+  "_notice": "SYNTHETIC DEMO DATA for automated testing of PostGIS geospatial layer ingestion. Do not use for real navigation.",
+  "city": {
+    "city_id": "AHMEDABAD",
+    "city_name": "Ahmedabad [DEMO DATA]",
+    "state": "Gujarat",
+    "country": "India",
+    "crs": "EPSG:4326",
+    "bounding_box": [72.50, 22.95, 72.68, 23.12],
+    "total_population": 5570000,
+    "total_area_sq_km": 464.16
+  },
+  "sources": [
+    {
+      "source_id": "SRC-DEMO-MOCK",
+      "name": "Ahmedabad Municipal GIS Test Seed [DEMO DATA]",
+      "license": "Open Data / Demo",
+      "acquisition_date": "2026-09-01",
+      "version": "1.0.0",
+      "feature_count": 15
+    }
+  ],
+  "wards": [
+    {
+      "zone_id": "ZONE-AHM-WEST-01",
+      "zone_name": "Ahmedabad West / Sabarmati Riverfront [DEMO DATA]",
+      "total_area_sq_km": 8.50,
+      "population": 145000,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [72.550, 23.010],
+            [72.590, 23.010],
+            [72.590, 23.060],
+            [72.550, 23.060],
+            [72.550, 23.010]
+          ]
+        ]
+      }
+    },
+    {
+      "zone_id": "ZONE-AHM-EAST-02",
+      "zone_name": "Ahmedabad East / Maninagar [DEMO DATA]",
+      "total_area_sq_km": 6.20,
+      "population": 110000,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [72.600, 22.980],
+            [72.640, 22.980],
+            [72.640, 23.010],
+            [72.600, 23.010],
+            [72.600, 22.980]
+          ]
+        ]
+      }
+    },
+    {
+      "zone_id": "ZONE-AHM-CENTRAL-03",
+      "zone_name": "Ahmedabad Central / Navrangpura [DEMO DATA]",
+      "total_area_sq_km": 5.80,
+      "population": 95000,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [72.530, 23.030],
+            [72.560, 23.030],
+            [72.560, 23.070],
+            [72.530, 23.070],
+            [72.530, 23.030]
+          ]
+        ]
+      }
+    }
+  ],
+  "buildings": [
+    {
+      "building_id": "BLDG-RES-001",
+      "name": "Sabarmati Residential Enclave [DEMO DATA]",
+      "building_type": "residential",
+      "zone_id": "ZONE-AHM-WEST-01",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.568, 23.025]
+      }
+    },
+    {
+      "building_id": "BLDG-COM-002",
+      "name": "Maninagar Commercial Arcade [DEMO DATA]",
+      "building_type": "commercial",
+      "zone_id": "ZONE-AHM-EAST-02",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.618, 22.995]
+      }
+    }
+  ],
+  "hospitals": [
+    {
+      "hospital_id": "HOSP-001",
+      "name": "Sabarmati Civil Hospital [DEMO DATA]",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-WEST-01",
+      "bed_capacity": 120,
+      "icu_beds": 25,
+      "has_emergency_ward": true,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.572, 23.035]
+      }
+    },
+    {
+      "hospital_id": "HOSP-002",
+      "name": "Maninagar General Clinic [DEMO DATA]",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-EAST-02",
+      "bed_capacity": 60,
+      "icu_beds": 8,
+      "has_emergency_ward": true,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.610, 22.985]
+      }
+    }
+  ],
+  "shelters": [
+    {
+      "shelter_id": "SHELTER-001",
+      "name": "Sabarmati Community Relief Hall [DEMO DATA]",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-WEST-01",
+      "occupancy_capacity": 800,
+      "has_generator": true,
+      "potable_water_liters": 10000,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.555, 23.045]
+      }
+    },
+    {
+      "shelter_id": "SHELTER-002",
+      "name": "Maninagar Government School Shelter [DEMO DATA]",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-EAST-02",
+      "occupancy_capacity": 500,
+      "has_generator": true,
+      "potable_water_liters": 6000,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [72.625, 23.002]
+      }
+    }
+  ],
+  "roads": [
+    {
+      "road_id": "ROAD-ASHRAM-CORRIDOR",
+      "name": "Ashram Road Evacuation Corridor [DEMO DATA]",
+      "road_type": "primary",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-WEST-01",
+      "lanes": 4,
+      "length_km": 5.40,
+      "is_evacuation_route": true,
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [72.560, 23.015],
+          [72.570, 23.030],
+          [72.575, 23.055]
+        ]
+      }
+    },
+    {
+      "road_id": "ROAD-MANINAGAR-LINK",
+      "name": "Maninagar Main Egress [DEMO DATA]",
+      "road_type": "secondary",
+      "city_id": "AHMEDABAD",
+      "zone_id": "ZONE-AHM-EAST-02",
+      "lanes": 2,
+      "length_km": 3.80,
+      "is_evacuation_route": false,
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [72.605, 22.985],
+          [72.620, 22.995],
+          [72.635, 23.008]
+        ]
+      }
+    }
+  ],
+  "demographics": [
+    {
+      "zone_id": "ZONE-AHM-WEST-01",
+      "city_id": "AHMEDABAD",
+      "total_population": 145000,
+      "elderly_count": 18000,
+      "children_count": 22000,
+      "household_count": 32000,
+      "density_per_sq_km": 17058.82
+    },
+    {
+      "zone_id": "ZONE-AHM-EAST-02",
+      "city_id": "AHMEDABAD",
+      "total_population": 110000,
+      "elderly_count": 12000,
+      "children_count": 16000,
+      "household_count": 24000,
+      "density_per_sq_km": 17741.93
+    },
+    {
+      "zone_id": "ZONE-AHM-CENTRAL-03",
+      "city_id": "AHMEDABAD",
+      "total_population": 95000,
+      "elderly_count": 11000,
+      "children_count": 13000,
+      "household_count": 21000,
+      "density_per_sq_km": 16379.31
+    }
+  ],
+  "depot_resources": {
+    "ambulances": 25,
+    "rescue_boats": 12,
+    "food_packets": 10000,
+    "medical_kits": 2000,
+    "personnel": 150
+  }
+}

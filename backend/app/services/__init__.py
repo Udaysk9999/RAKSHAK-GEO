@@ -16,6 +16,7 @@ from .flood_service import (
     FloodDetectionPipeline,
 )
 from .flood_response_service import FloodResponseService
+from .city_gis_repository import CityGISRepository
 
 __all__ = [
     "ResourceOptimizationService",
@@ -32,4 +33,5 @@ __all__ = [
     "BaseGeoJSONExporter",
     "FloodDetectionPipeline",
     "FloodResponseService",
+    "CityGISRepository",
 ]

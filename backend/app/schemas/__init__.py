@@ -61,6 +61,16 @@ from .flood_response import (
     IntegratedZoneResponse,
     FloodResponseAnalyzeResponse,
 )
+from .city_gis import (
+    GeometryType,
+    DatasetSource,
+    CityMetadata,
+    RoadSegment,
+    HospitalFacility,
+    ShelterFacility,
+    PopulationDemographic,
+    CityGISInventorySummary,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -116,4 +126,13 @@ __all__ = [
     "FloodResponseAnalyzeRequest",
     "IntegratedZoneResponse",
     "FloodResponseAnalyzeResponse",
+
+    "GeometryType",
+    "DatasetSource",
+    "CityMetadata",
+    "RoadSegment",
+    "HospitalFacility",
+    "ShelterFacility",
+    "PopulationDemographic",
+    "CityGISInventorySummary",
 ]
