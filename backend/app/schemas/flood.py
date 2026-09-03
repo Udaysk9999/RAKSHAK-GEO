@@ -101,6 +101,28 @@ class PermanentWaterMaskConfig(BaseModel):
     )
 
 
+class PotentialFloodWaterResult(BaseModel):
+    """Result of permanent water masking separating newly flooded areas from baseline water bodies."""
+    model_config = {"arbitrary_types_allowed": True}
+
+    scene_id: str = Field(..., description="Source scene identifier")
+    metadata: RasterMetadata = Field(..., description="Spatial metadata of source raster")
+    flood_water_mask: Any = Field(..., description="Binary 2D numpy array of new/potential flood water (1=flood, 0=non-flood/permanent, uint8)")
+    permanent_water_mask: Optional[Any] = Field(None, description="Binary 2D numpy array of permanent water (1=permanent, 0=non-permanent, uint8)")
+    total_pixels: int = Field(..., description="Total pixel count of the raster scene")
+    valid_pixels: int = Field(..., description="Count of valid (non-nodata) pixels")
+    nodata_pixels: int = Field(default=0, description="Count of masked nodata pixels")
+    detected_water_pixels: int = Field(..., description="Total NDWI surface water pixels before masking")
+    permanent_water_pixels: int = Field(..., description="Baseline permanent water pixels within valid scene area")
+    new_flood_water_pixels: int = Field(..., description="Net new / potential flood water pixels (detected - permanent)")
+    flood_fraction: float = Field(..., description="Ratio of new flood water pixels to valid pixels (0.0 to 1.0)")
+    transform: Optional[Tuple[float, ...]] = Field(None, description="Affine transformation coefficients")
+
+
+# Alias for compatibility
+PermanentWaterMaskResult = PotentialFloodWaterResult
+
+
 class FloodExtentMetrics(BaseModel):
     """Quantitative statistical metrics for detected flood extent."""
     total_water_area_sq_km: float = Field(..., ge=0.0, description="Total detected surface water area in sq km")
