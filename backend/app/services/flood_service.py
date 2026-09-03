@@ -17,7 +17,7 @@ import math
 import glob
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import rasterio
 import pyproj
@@ -28,6 +28,8 @@ from app.schemas.flood import (
     WaterDetectionConfig,
     SurfaceWaterMaskResult,
     PermanentWaterMaskConfig,
+    PotentialFloodWaterResult,
+    PermanentWaterMaskResult,
     FloodExtentMetrics,
     GeoJSONFeatureCollection,
     FloodExtentResponse,
@@ -495,6 +497,295 @@ class BasePermanentWaterMasker(ABC):
     ) -> Any:
         """Subtract permanent water bodies from detected water mask to isolate ephemeral flood water."""
         pass
+
+
+class PermanentWaterMasker(BasePermanentWaterMasker):
+    """Concrete permanent-water masker separating detected surface water from baseline water bodies.
+
+    Scientific & Operational Rationale:
+        Satellite optical water detection (NDWI) classifies all water surfaces indiscriminately
+        (rivers, lakes, reservoirs, swimming pools, retention basins, and flood waters).
+        To derive potential/ephemeral flood inundation, baseline permanent water must be subtracted:
+            new_flood_water = detected_water AND NOT permanent_water
+
+    Deterministic Masking Rules:
+        - detected_water = 1, permanent_water = 1 -> new_water = 0 (baseline river/lake)
+        - detected_water = 1, permanent_water = 0 -> new_water = 1 (potential flood inundation)
+        - detected_water = 0, permanent_water = 0 -> new_water = 0 (dry land)
+        - detected_water = 0, permanent_water = 1 -> new_water = 0 (receded baseline or dry riverbed)
+        - nodata / invalid pixels -> new_water = 0 (never classified as flood)
+
+    Spatial Alignment Validation:
+        Strictly validates that detected water and permanent water masks have matching:
+        - Array shape / dimensions (height, width)
+        - CRS (Coordinate Reference System)
+        - Spatial resolution in meters
+        - Affine transform / Bounding box
+        Raises ValueError on any spatial mismatch to avoid silent geometric distortions.
+
+    Limitations:
+        - Identifies new/potential surface water; does NOT prove structural building damage.
+        - Accuracy depends on the quality and temporal relevance of the permanent water baseline.
+    """
+
+    def validate_mask_alignment(
+        self,
+        detected_water_mask: Any,
+        permanent_water_mask: Any,
+        meta_detected: Optional[RasterMetadata] = None,
+        meta_permanent: Optional[RasterMetadata] = None,
+        transform_detected: Optional[Any] = None,
+        transform_permanent: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Validate shape, dimensionality, and spatial metadata compatibility of water masks."""
+        det_arr = np.asarray(detected_water_mask)
+        perm_arr = np.asarray(permanent_water_mask)
+
+        # Squeeze 3D single-band raster arrays
+        if det_arr.ndim == 3 and det_arr.shape[0] == 1:
+            det_arr = det_arr[0]
+        if perm_arr.ndim == 3 and perm_arr.shape[0] == 1:
+            perm_arr = perm_arr[0]
+
+        if det_arr.ndim != 2 or perm_arr.ndim != 2:
+            raise ValueError(
+                f"Expected 2D raster masks, but received detected ndim={det_arr.ndim} and permanent ndim={perm_arr.ndim}."
+            )
+
+        if det_arr.shape != perm_arr.shape:
+            raise ValueError(
+                f"Mask shape mismatch: detected water mask {det_arr.shape} != permanent water mask {perm_arr.shape}."
+            )
+
+        # Validate spatial metadata if provided
+        if meta_detected is not None and meta_permanent is not None:
+            if meta_detected.crs != meta_permanent.crs:
+                raise ValueError(
+                    f"CRS mismatch: detected water CRS '{meta_detected.crs}' != permanent water CRS '{meta_permanent.crs}'."
+                )
+            if abs(meta_detected.resolution_meters - meta_permanent.resolution_meters) > 1e-3:
+                raise ValueError(
+                    f"Resolution mismatch: detected water ({meta_detected.resolution_meters}m) != "
+                    f"permanent water ({meta_permanent.resolution_meters}m)."
+                )
+            if meta_detected.width_px != meta_permanent.width_px or meta_detected.height_px != meta_permanent.height_px:
+                raise ValueError(
+                    f"Pixel dimension mismatch: detected ({meta_detected.width_px}x{meta_detected.height_px}) != "
+                    f"permanent ({meta_permanent.width_px}x{meta_permanent.height_px})."
+                )
+            if (
+                abs(meta_detected.bbox.min_lon - meta_permanent.bbox.min_lon) > 1e-4
+                or abs(meta_detected.bbox.min_lat - meta_permanent.bbox.min_lat) > 1e-4
+                or abs(meta_detected.bbox.max_lon - meta_permanent.bbox.max_lon) > 1e-4
+                or abs(meta_detected.bbox.max_lat - meta_permanent.bbox.max_lat) > 1e-4
+            ):
+                raise ValueError(
+                    f"Geospatial bounding box mismatch between detected water ({meta_detected.bbox}) "
+                    f"and permanent water ({meta_permanent.bbox})."
+                )
+
+        # Validate transform if provided
+        if transform_detected is not None and transform_permanent is not None:
+            t_det = tuple(transform_detected) if hasattr(transform_detected, "__iter__") else transform_detected
+            t_perm = tuple(transform_permanent) if hasattr(transform_permanent, "__iter__") else transform_permanent
+            if t_det != t_perm:
+                if len(t_det) == len(t_perm):
+                    if not np.allclose(np.array(t_det, dtype=float), np.array(t_perm, dtype=float), atol=1e-5):
+                        raise ValueError(
+                            f"Affine transform mismatch: detected {t_det} != permanent {t_perm}."
+                        )
+                else:
+                    raise ValueError(
+                        f"Affine transform mismatch: detected {t_det} != permanent {t_perm}."
+                    )
+
+        return det_arr, perm_arr
+
+    def compute_new_flood_water(
+        self,
+        detected_water_mask: Any,
+        permanent_water_mask: Any,
+        nodata_mask: Optional[Any] = None,
+    ) -> np.ndarray:
+        """Compute new / potential flood water: (detected == 1) & (permanent == 0) & (~nodata)."""
+        det_arr, perm_arr = self.validate_mask_alignment(detected_water_mask, permanent_water_mask)
+
+        # Identify invalid / nodata elements in inputs
+        invalid_mask = np.zeros(det_arr.shape, dtype=bool)
+        if np.issubdtype(det_arr.dtype, np.floating):
+            invalid_mask |= np.isnan(det_arr) | np.isinf(det_arr)
+        if np.issubdtype(perm_arr.dtype, np.floating):
+            invalid_mask |= np.isnan(perm_arr) | np.isinf(perm_arr)
+
+        if nodata_mask is not None:
+            invalid_mask |= np.asarray(nodata_mask, dtype=bool)
+
+        # Binary water condition: detected == 1 and permanent == 0
+        det_is_water = (det_arr == 1) & (~invalid_mask)
+        perm_is_water = (perm_arr == 1) & (~invalid_mask)
+
+        new_flood_bool = det_is_water & (~perm_is_water)
+
+        flood_mask = np.zeros(det_arr.shape, dtype=np.uint8)
+        flood_mask[new_flood_bool] = 1
+
+        return flood_mask
+
+    def mask_permanent_water(
+        self,
+        detected_water: Union[SurfaceWaterMaskResult, np.ndarray],
+        permanent_water: Union[np.ndarray, str],
+        metadata: Optional[RasterMetadata] = None,
+        meta_permanent: Optional[RasterMetadata] = None,
+        nodata_mask: Optional[np.ndarray] = None,
+        transform: Optional[Any] = None,
+        transform_permanent: Optional[Any] = None,
+        raster_processor: Optional[BaseRasterProcessor] = None,
+        config: Optional[PermanentWaterMaskConfig] = None,
+    ) -> PotentialFloodWaterResult:
+        """Execute permanent water masking and produce quantitative flood statistics and mask."""
+        if config is None:
+            config = PermanentWaterMaskConfig()
+
+        # Extract parameters if SurfaceWaterMaskResult was passed
+        if isinstance(detected_water, SurfaceWaterMaskResult):
+            det_mask = detected_water.water_mask
+            scene_id = detected_water.scene_id
+            if metadata is None:
+                metadata = detected_water.metadata
+            if transform is None:
+                transform = detected_water.transform
+            if nodata_mask is None and detected_water.ndwi_array is not None:
+                nodata_mask = np.isnan(detected_water.ndwi_array) | np.isinf(detected_water.ndwi_array)
+        else:
+            det_mask = detected_water
+            scene_id = metadata.scene_id if metadata else "UNKNOWN_SCENE"
+
+        # Load permanent water from file if string path was provided
+        if isinstance(permanent_water, str):
+            if not os.path.exists(permanent_water):
+                raise FileNotFoundError(f"Permanent water raster file not found: '{permanent_water}'")
+            if raster_processor is None:
+                raster_processor = GeoTIFFRasterProcessor()
+            meta_perm_file = raster_processor.read_metadata(permanent_water)
+            if meta_permanent is None:
+                meta_permanent = meta_perm_file
+            with rasterio.open(permanent_water) as src:
+                perm_mask = src.read(1)
+                if transform_permanent is None and src.transform is not None:
+                    transform_permanent = tuple(src.transform.to_gdal())
+        else:
+            perm_mask = permanent_water
+
+        # Alignment validation
+        det_arr, perm_arr = self.validate_mask_alignment(
+            det_mask,
+            perm_mask,
+            meta_detected=metadata,
+            meta_permanent=meta_permanent,
+            transform_detected=transform,
+            transform_permanent=transform_permanent,
+        )
+
+        # Derive nodata mask
+        total_pixels = int(det_arr.size)
+        invalid_pixels = np.zeros(det_arr.shape, dtype=bool)
+        if np.issubdtype(det_arr.dtype, np.floating):
+            invalid_pixels |= np.isnan(det_arr) | np.isinf(det_arr)
+        if np.issubdtype(perm_arr.dtype, np.floating):
+            invalid_pixels |= np.isnan(perm_arr) | np.isinf(perm_arr)
+        if nodata_mask is not None:
+            invalid_pixels |= np.asarray(nodata_mask, dtype=bool)
+
+        nodata_count = int(np.sum(invalid_pixels))
+        valid_pixels = total_pixels - nodata_count
+
+        # Compute new flood mask
+        flood_mask = self.compute_new_flood_water(det_arr, perm_arr, nodata_mask=invalid_pixels)
+
+        # Compute pixel counts on valid pixels
+        valid_det_water = (det_arr == 1) & (~invalid_pixels)
+        valid_perm_water = (perm_arr == 1) & (~invalid_pixels)
+        detected_water_pixels = int(np.sum(valid_det_water))
+        permanent_water_pixels = int(np.sum(valid_perm_water))
+        new_flood_water_pixels = int(np.sum(flood_mask == 1))
+
+        flood_fraction = (
+            round(float(new_flood_water_pixels / valid_pixels), 6) if valid_pixels > 0 else 0.0
+        )
+
+        transform_tuple = None
+        if transform is not None:
+            if hasattr(transform, "to_gdal"):
+                transform_tuple = tuple(transform.to_gdal())
+            elif isinstance(transform, (tuple, list)):
+                transform_tuple = tuple(transform)
+
+        if metadata is None:
+            metadata = RasterMetadata(
+                scene_id=scene_id,
+                crs="UNKNOWN",
+                bbox=RasterBoundingBox(min_lon=0.0, min_lat=0.0, max_lon=0.0, max_lat=0.0),
+                width_px=det_arr.shape[1],
+                height_px=det_arr.shape[0],
+                resolution_meters=10.0,
+            )
+
+        perm_uint8 = np.zeros(perm_arr.shape, dtype=np.uint8)
+        perm_uint8[valid_perm_water] = 1
+
+        return PotentialFloodWaterResult(
+            scene_id=scene_id,
+            metadata=metadata,
+            flood_water_mask=flood_mask,
+            permanent_water_mask=perm_uint8,
+            total_pixels=total_pixels,
+            valid_pixels=valid_pixels,
+            nodata_pixels=nodata_count,
+            detected_water_pixels=detected_water_pixels,
+            permanent_water_pixels=permanent_water_pixels,
+            new_flood_water_pixels=new_flood_water_pixels,
+            flood_fraction=flood_fraction,
+            transform=transform_tuple,
+        )
+
+    def apply_mask(
+        self,
+        detected_water_mask: Any,
+        mask_config: PermanentWaterMaskConfig,
+        spatial_bounds: Any = None,
+        permanent_water_mask: Optional[Any] = None,
+        metadata: Optional[RasterMetadata] = None,
+    ) -> Any:
+        """Subtract permanent water bodies from detected water mask adhering to BasePermanentWaterMasker contract."""
+        if permanent_water_mask is None:
+            if mask_config.mask_identifier and os.path.exists(mask_config.mask_identifier):
+                result = self.mask_permanent_water(
+                    detected_water=detected_water_mask,
+                    permanent_water=mask_config.mask_identifier,
+                    metadata=metadata,
+                    config=mask_config,
+                )
+                return result.flood_water_mask
+            else:
+                raise ValueError(
+                    "Permanent water mask array or valid mask_identifier file path must be provided."
+                )
+
+        if isinstance(detected_water_mask, SurfaceWaterMaskResult) or metadata is not None:
+            result = self.mask_permanent_water(
+                detected_water=detected_water_mask,
+                permanent_water=permanent_water_mask,
+                metadata=metadata,
+                config=mask_config,
+            )
+            return result.flood_water_mask
+        else:
+            return self.compute_new_flood_water(detected_water_mask, permanent_water_mask)
+
+
+# Alias for backward and forward compatibility
+BaselinePermanentWaterMasker = PermanentWaterMasker
 
 
 class BaseFloodExtentAnalyzer(ABC):
