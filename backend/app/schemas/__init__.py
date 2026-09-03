@@ -55,6 +55,12 @@ from .gis import (
     FloodImpactRequest,
     FloodImpactResponse,
 )
+from .flood_response import (
+    ZoneBaselineProfile,
+    FloodResponseAnalyzeRequest,
+    IntegratedZoneResponse,
+    FloodResponseAnalyzeResponse,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -105,4 +111,9 @@ __all__ = [
     "GISImpactSummary",
     "FloodImpactRequest",
     "FloodImpactResponse",
+
+    "ZoneBaselineProfile",
+    "FloodResponseAnalyzeRequest",
+    "IntegratedZoneResponse",
+    "FloodResponseAnalyzeResponse",
 ]
