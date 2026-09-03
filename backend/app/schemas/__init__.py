@@ -36,6 +36,41 @@ from .what_if import (
     SimulationSummary,
     WhatIfSimulateResponse,
 )
+from .timeline import (
+    HourlyGrowthRule,
+    TimeStepProjection,
+    FutureGapTimelineRequest,
+    ZoneGapPoint,
+    TimelinePoint,
+    TimelineSummary,
+    FutureGapTimelineResponse,
+)
+from .gis import (
+    ImpactLevel,
+    BuildingFootprint,
+    WardZoneGeometry,
+    BuildingImpactDetail,
+    ZoneImpactResult,
+    GISImpactSummary,
+    FloodImpactRequest,
+    FloodImpactResponse,
+)
+from .flood_response import (
+    ZoneBaselineProfile,
+    FloodResponseAnalyzeRequest,
+    IntegratedZoneResponse,
+    FloodResponseAnalyzeResponse,
+)
+from .city_gis import (
+    GeometryType,
+    DatasetSource,
+    CityMetadata,
+    RoadSegment,
+    HospitalFacility,
+    ShelterFacility,
+    PopulationDemographic,
+    CityGISInventorySummary,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -69,4 +104,35 @@ __all__ = [
     "ZoneAllocationComparison",
     "SimulationSummary",
     "WhatIfSimulateResponse",
+
+    "HourlyGrowthRule",
+    "TimeStepProjection",
+    "FutureGapTimelineRequest",
+    "ZoneGapPoint",
+    "TimelinePoint",
+    "TimelineSummary",
+    "FutureGapTimelineResponse",
+
+    "ImpactLevel",
+    "BuildingFootprint",
+    "WardZoneGeometry",
+    "BuildingImpactDetail",
+    "ZoneImpactResult",
+    "GISImpactSummary",
+    "FloodImpactRequest",
+    "FloodImpactResponse",
+
+    "ZoneBaselineProfile",
+    "FloodResponseAnalyzeRequest",
+    "IntegratedZoneResponse",
+    "FloodResponseAnalyzeResponse",
+
+    "GeometryType",
+    "DatasetSource",
+    "CityMetadata",
+    "RoadSegment",
+    "HospitalFacility",
+    "ShelterFacility",
+    "PopulationDemographic",
+    "CityGISInventorySummary",
 ]

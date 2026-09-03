@@ -1,7 +1,9 @@
 """Service layer initialization for CITYSHIELD GIS."""
 
 from .optimization_service import ResourceOptimizationService
-
+from .what_if_service import WhatIfSimulationService
+from .timeline_service import FutureGapTimelineService
+from .gis_service import GISFloodImpactService
 from .flood_service import (
     BaseRasterProcessor,
     GeoTIFFRasterProcessor,
@@ -13,13 +15,14 @@ from .flood_service import (
     BaseGeoJSONExporter,
     FloodDetectionPipeline,
 )
-
-from .what_if_service import WhatIfSimulationService
-
+from .flood_response_service import FloodResponseService
+from .city_gis_repository import CityGISRepository
 
 __all__ = [
     "ResourceOptimizationService",
-
+    "WhatIfSimulationService",
+    "FutureGapTimelineService",
+    "GISFloodImpactService",
     "BaseRasterProcessor",
     "GeoTIFFRasterProcessor",
     "BaseWaterDetector",
@@ -29,6 +32,6 @@ __all__ = [
     "BaseFloodExtentAnalyzer",
     "BaseGeoJSONExporter",
     "FloodDetectionPipeline",
-
-    "WhatIfSimulationService",
+    "FloodResponseService",
+    "CityGISRepository",
 ]

@@ -2,30 +2,27 @@
 
 ## 🔴 IN PROGRESS
 
-*(None — T-015 completed and verified)*
+*(None — T-019 completed and verified)*
 
 ---
 
 ## 🟡 READY
 
-### T-016 — Add Future Response Gap Timeline
+### T-020 — LLM Copilot Integration
+Owner: UNASSIGNED
+Status: READY
+Depends on: T-015, T-016, T-017, T-018, T-019
+
+### Phase 1 Step 4 — Permanent-Water Masking
 Owner: FRIEND-1
 Status: READY
-Depends on: T-012
-
-### T-017 — GIS Zone Detail Panel
-Owner: FRIEND-2
-Status: READY
-Depends on: T-010
+Depends on: NDWI Water Detection
 
 ---
 
 ## ⚪ BLOCKED
 
-### T-018 — LLM Copilot
-Owner: UNASSIGNED
-Status: BLOCKED
-Depends on: T-016
+*(None)*
 
 ---
 
@@ -40,3 +37,7 @@ T-006 — Capacity engine
 T-007 — Response Gap engine
 T-014 — Resource Optimization API
 T-015 — Connect Optimization API to What-If Simulator
+T-016 — Add Future Response Gap Timeline
+T-017 — Flood Impact + GIS Zone Intelligence
+T-018 — End-to-End Flood Pipeline Integration
+T-019 — PostGIS + City GIS Data Foundation
