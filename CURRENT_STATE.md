@@ -1,14 +1,14 @@
  feature/future-response-gap
 # CURRENT STATE — CITYSHIELD GIS (RAKSHAK-GEO)
 
-Last updated: September 2, 2026
+Last updated: September 3, 2026
 
 ## Overall Progress
 
-Phase: Phase 1 — Step 4 (Permanent-Water Masking Completed)
+Phase: Phase 1 — Step 5 (Flood Extent Extraction & GeoJSON Vectorization Completed)
 
 Status:
-███████░░░ 70%
+████████░░ 80%
 
 ## Working / Verified in Repository
 
@@ -33,23 +33,29 @@ Status:
     - Computes granular zone-level and resource-level comparative deltas
     - Evaluates overall fulfillment rate shift and deterministic narrative verdict
   - Test Suite: 22/22 PASSED across all optimization and what-if test suites
-- Phase 1 Step 2, 3 & 4 Satellite, Raster, NDWI & Permanent-Water Masking: **COMPLETED & OPERATIONAL**
+- Phase 1 Step 2, 3, 4 & 5 Satellite, NDWI, Permanent-Water Masking & Flood Extent Extraction: **COMPLETED & OPERATIONAL**
   - Implementation:
     - `GeoTIFFRasterProcessor` (`backend/app/services/flood_service.py`): Concrete raster reader using `rasterio` and `pyproj`
     - `NDWIWaterDetector` (`backend/app/services/flood_service.py`): Concrete surface-water detector implementing McFeeters NDWI formula: `(Green - NIR) / (Green + NIR)`
     - `PermanentWaterMasker` (`backend/app/services/flood_service.py`): Concrete permanent-water masker implementing deterministic subtraction: `new_water = detected_water AND NOT permanent_water`
-    - `SatelliteSceneContract`, `SurfaceWaterMaskResult` & `PotentialFloodWaterResult` (`backend/app/schemas/flood.py`): Typed Pydantic schemas for input contracts, surface-water detection results, and potential flood results
-    - Spatial alignment validation: Rigorous shape, dimensionality, CRS, resolution, transform, and bounding-box validation between detected water and permanent water masks
-    - Nodata safety: Nodata/invalid pixels are strictly guarded and never misclassified as flood water
-    - Deterministic classification: `detected=1 & permanent=0 -> 1 (flood)`, all other combinations -> `0 (non-flood)`
-    - Metadata preservation: Preserves CRS, affine transform, dimensions, bounds, resolution in `PotentialFloodWaterResult`
-    - Readiness: `FloodDetectionPipeline` registers `raster_processor`, `water_detector`, and `permanent_masker` as active
-  - Limitations & Boundaries:
-    - Permanent water baseline is an input dependency (e.g. JRC Global Surface Water or prepared reference GeoTIFF)
-    - Optical NDWI can be affected by cloud cover, cloud shadows, and dense terrain shadows
-    - This stage identifies new/potential surface water; it does NOT prove structural building damage or destroyed infrastructure
-    - No fake satellite imagery or fake flood results are fabricated; test suites utilize transient synthetic numpy/tempfile fixtures exclusively for mathematical and spatial validation
-  - Test Suite: 45/45 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`, `test_permanent_water_masker.py`), 67/67 repository-wide
+    - `FloodExtentAnalyzer` (`backend/app/services/flood_service.py`): Concrete quantitative flood extent analyzer deriving exact `FloodExtentMetrics` (flooded area in sq km, permanent water area, total water area)
+    - `GeoJSONFloodExporter` (`backend/app/services/flood_service.py`): Concrete raster-to-vector polygonizer vectorizing binary flood masks into RFC 7946 GeoJSON `GeoJSONFeatureCollection` with true affine transformations and CRS coordinate preservation
+    - `FloodExtentExtractor` (`backend/app/services/flood_service.py`): End-to-end extraction orchestrator accepting `PotentialFloodWaterResult` or raw mask + metadata, generating typed `FloodExtentResult` and `FloodExtentResponse`
+    - `FloodExtentExtractionConfig` (`backend/app/schemas/flood.py`): Typed Pydantic configuration for small-region filtering (`min_pixel_cluster_size`), connectivity (4/8), geometry simplification, and area units
+    - `FloodDetectionPipeline` (`backend/app/services/flood_service.py`): Fully wired 5-stage pipeline executing satellite ingestion -> NDWI detection -> permanent water masking -> extent extraction -> GeoJSON vector export
+    - Spatial & Geodetic Integrity:
+      - Geodesic ellipsoidal area computation (`pyproj.Geod(ellps="WGS84")`) for geographic CRS (`EPSG:4326`) ensuring degree² is never confused with square meters
+      - Planar area computation in linear units ($m^2$ / $km^2$) for projected CRS (`EPSG:32643` UTM Zone 43N)
+      - Disconnected flood regions are extracted into distinct GeoJSON polygon features with deterministic properties (`region_id`, `flooded_pixel_count`, `area`, `area_unit`)
+      - All-zero masks cleanly return valid empty FeatureCollections with zero polygon count and zero area
+      - Valid Shapely geometry enforcement with closed rings and hole/donut handling
+  - Limitations & Scientific Boundaries:
+    - The output represents **potential / new surface-water flood extent detected from satellite imagery**.
+    - It does NOT represent destroyed buildings, structural damage, confirmed property loss, or exact affected population (which belong to downstream impact modules).
+    - Real satellite imagery and permanent-water baseline data remain external inputs.
+    - Test fixtures utilize strictly transient in-memory synthetic arrays/tempfiles for spatial and mathematical verification; no fake satellite data is committed.
+  - Test Suite: 72/72 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`, `test_permanent_water_masker.py`, `test_flood_extent.py`), 94/94 repository-wide
+- Phase 1 Step 6 GeoJSON Vector Export: **COMPLETED & OPERATIONAL** (Integrated into `GeoJSONFloodExporter` and `FloodExtentExtractor`)
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
@@ -57,10 +63,9 @@ Status:
 - Satellite Test Fixtures: strictly ephemeral in-memory/tempfile fixtures for unit tests; no fake imagery stored
 
 ## Ready Next Tasks
-- **Phase 1 Step 5**: Flood Extent Derivation & Statistics (`BaseFloodExtentAnalyzer`)
-- **Phase 1 Step 6**: GeoJSON Vector Export (`BaseGeoJSONExporter`)
 - **T-016**: Add Future Response Gap Timeline
 - **T-017**: GIS Zone Detail Panel
+
 
 =======
 # CURRENT STATE — CITYSHIELD GIS (RAKSHAK-GEO)
