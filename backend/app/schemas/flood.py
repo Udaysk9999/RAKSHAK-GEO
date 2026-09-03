@@ -42,6 +42,20 @@ class RasterMetadata(BaseModel):
     available_bands: List[str] = Field(default_factory=list, description="List of band names in the raster")
 
 
+class SatelliteSceneContract(BaseModel):
+    """Specification contract for satellite scene ingestion."""
+    scene_path: str = Field(..., description="Path to GeoTIFF file or Sentinel-2 band directory")
+    pilot_area: str = Field(default="Ahmedabad", description="Target pilot region")
+    required_bands: List[str] = Field(
+        default_factory=lambda: ["B03", "B08"],
+        description="Required spectral bands for water detection (e.g. B03 Green, B08 NIR)"
+    )
+    expected_crs: Optional[str] = Field(
+        default=None,
+        description="Expected CRS (e.g. EPSG:4326 or EPSG:32643 UTM Zone 43N)"
+    )
+
+
 class WaterDetectionConfig(BaseModel):
     """Configuration parameters for spectral water classification."""
     index_type: SpectralIndexType = Field(default=SpectralIndexType.NDWI, description="Index formula to use")
@@ -51,6 +65,28 @@ class WaterDetectionConfig(BaseModel):
         le=1.0,
         description="Index threshold above which pixel is classified as water (typically >= 0.0)"
     )
+    nodata_value: Optional[float] = Field(
+        default=None,
+        description="Optional nodata value to ignore during calculation (e.g. 0.0, -9999.0)"
+    )
+
+
+class SurfaceWaterMaskResult(BaseModel):
+    """Result of spectral surface water detection on a satellite scene."""
+    model_config = {"arbitrary_types_allowed": True}
+
+    scene_id: str = Field(..., description="Source scene identifier")
+    metadata: RasterMetadata = Field(..., description="Spatial metadata of source raster")
+    water_mask: Any = Field(..., description="Binary 2D numpy array (1=water, 0=non-water, uint8)")
+    ndwi_array: Optional[Any] = Field(None, description="2D float32 NDWI array with NaN for nodata/invalid")
+    threshold: float = Field(default=0.0, description="Configured NDWI threshold used for classification")
+    total_pixels: int = Field(..., description="Total pixel count of the raster scene")
+    valid_pixels: int = Field(..., description="Count of valid (non-nodata) pixels")
+    water_pixels: int = Field(..., description="Count of classified surface-water pixels")
+    water_fraction: float = Field(..., description="Ratio of water pixels to valid pixels (0.0 to 1.0)")
+    nodata_pixels: int = Field(default=0, description="Count of masked nodata pixels")
+    transform: Optional[Tuple[float, ...]] = Field(None, description="Affine transformation coefficients")
+
 
 
 class PermanentWaterMaskConfig(BaseModel):
