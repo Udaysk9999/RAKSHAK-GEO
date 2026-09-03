@@ -26,7 +26,9 @@ from .flood import (
     GeoJSONGeometry,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    FloodExtentExtractionConfig,
     FloodExtentResponse,
+    FloodExtentResult,
 )
 
 from .what_if import (
@@ -99,7 +101,9 @@ __all__ = [
     "GeoJSONGeometry",
     "GeoJSONFeature",
     "GeoJSONFeatureCollection",
+    "FloodExtentExtractionConfig",
     "FloodExtentResponse",
+    "FloodExtentResult",
 
     "ZoneModifier",
     "ScenarioChanges",

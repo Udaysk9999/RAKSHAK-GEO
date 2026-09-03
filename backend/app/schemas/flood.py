@@ -151,6 +151,28 @@ class GeoJSONFeatureCollection(BaseModel):
     bbox: Optional[List[float]] = Field(None, description="Optional bounding box [minX, minY, maxX, maxY]")
 
 
+class FloodExtentExtractionConfig(BaseModel):
+    """Configuration for vector polygon extraction and filtering from binary flood masks."""
+    min_pixel_cluster_size: int = Field(
+        default=1,
+        ge=1,
+        description="Minimum number of connected flooded pixels required to retain a polygon (filters tiny noise clusters)"
+    )
+    connectivity: int = Field(
+        default=8,
+        description="Pixel neighborhood connectivity for polygon extraction (4 or 8)"
+    )
+    simplify_tolerance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Optional tolerance in CRS units for Douglas-Peucker polygon simplification"
+    )
+    area_unit: str = Field(
+        default="sq_km",
+        description="Unit for area calculation and reporting ('sq_km' or 'sq_m')"
+    )
+
+
 class FloodExtentResponse(BaseModel):
     """Standard API response schema for flood detection pipeline results."""
     scene_id: str = Field(..., description="Input scene identifier")
@@ -159,3 +181,37 @@ class FloodExtentResponse(BaseModel):
     geojson: GeoJSONFeatureCollection = Field(..., description="Vectorized flood extent boundary")
     status: str = Field(default="SUCCESS", description="Pipeline execution status")
     notes: Optional[str] = Field(None, description="Processing notes or warnings")
+
+
+class FloodExtentResult(BaseModel):
+    """Comprehensive result of flood extent extraction including GeoJSON and metrics."""
+    scene_id: str = Field(..., description="Source scene identifier")
+    metadata: RasterMetadata = Field(..., description="Spatial metadata of source raster")
+    flooded_pixel_count: int = Field(..., description="Total flooded pixel count after filtering")
+    polygon_count: int = Field(..., description="Total extracted polygon count after filtering")
+    flooded_area: float = Field(..., ge=0.0, description="Total flooded area in configured area_unit")
+    area_unit: str = Field(default="sq_km", description="Unit of flooded area ('sq_km' or 'sq_m')")
+    bbox: Optional[List[float]] = Field(None, description="Geographic/projected bounding box [min_x, min_y, max_x, max_y]")
+    crs: str = Field(..., description="Coordinate Reference System of source and output geometry")
+    resolution_meters: float = Field(..., gt=0.0, description="Spatial resolution in meters")
+    geojson: GeoJSONFeatureCollection = Field(..., description="RFC 7946 GeoJSON FeatureCollection of flood polygons")
+    metrics: FloodExtentMetrics = Field(..., description="Quantitative flood metrics")
+    timestamp: Optional[str] = Field(None, description="ISO 8601 processing timestamp")
+
+    def to_geojson(self) -> GeoJSONFeatureCollection:
+        """Return the GeoJSON FeatureCollection representation."""
+        return self.geojson
+
+    def to_response(self, status: str = "SUCCESS", notes: Optional[str] = None) -> FloodExtentResponse:
+        """Construct standard FloodExtentResponse."""
+        from datetime import datetime, timezone
+        ts = self.timestamp or datetime.now(timezone.utc).isoformat()
+        return FloodExtentResponse(
+            scene_id=self.scene_id,
+            timestamp=ts,
+            metrics=self.metrics,
+            geojson=self.geojson,
+            status=status,
+            notes=notes,
+        )
+
