@@ -3,6 +3,7 @@
 from .optimization_service import ResourceOptimizationService
 from .what_if_service import WhatIfSimulationService
 from .timeline_service import FutureGapTimelineService
+from .response_gap_timeline_service import FutureResponseGapTimelineService
 from .gis_service import GISFloodImpactService
 from .flood_service import (
     BaseRasterProcessor,
@@ -29,6 +30,7 @@ __all__ = [
     "ResourceOptimizationService",
     "WhatIfSimulationService",
     "FutureGapTimelineService",
+    "FutureResponseGapTimelineService",
     "GISFloodImpactService",
     "BaseRasterProcessor",
     "GeoTIFFRasterProcessor",

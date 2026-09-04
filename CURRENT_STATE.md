@@ -105,9 +105,13 @@ Status:
 - Foundation & Schemas: OPERATIONAL (`backend/app/schemas/flood.py`)
 - Raster Ingestion: OPERATIONAL (`GeoTIFFRasterProcessor` in `backend/app/services/flood_service.py` using `rasterio` & `pyproj`)
 - NDWI Water Detection: OPERATIONAL (`NDWIWaterDetector` in `backend/app/services/flood_service.py` implementing McFeeters NDWI: `(Green - NIR) / (Green + NIR)`)
-- Band Validation: Shape, dimensionality, CRS, resolution, and bounding-box alignment validation between B03 and B08
-- Safety Guards: Division-by-zero handled with NaN assignment; Nodata pixels strictly masked out (never classified as water)
-- Test Suite: 27/27 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`)
+- Permanent-Water Masking (Step 4): OPERATIONAL (`PermanentWaterMasker` / `BaselinePermanentWaterMasker` in `backend/app/services/flood_service.py`)
+- Flood Extent Extraction & Polygonization (Step 5): OPERATIONAL (`FloodExtentExtractor`, `FloodExtentAnalyzer`, `GeoJSONFloodExporter` in `backend/app/services/flood_service.py`)
+- Future Response-Gap Timeline Foundation (Step 6): OPERATIONAL
+  - Schemas: `ResponseGapTimelinePoint`, `ResponseGapTimeline`, `DuplicateTimestampPolicy` in `backend/app/schemas/response_gap_timeline.py`
+  - Service: `FutureResponseGapTimelineService` in `backend/app/services/response_gap_timeline_service.py`
+  - Capabilities: Chronological sorting, strict invariant validation (non-negative area & gap, explicit units, UTC normalized datetimes), duplicate timestamp resolution policies (`reject`, `keep_last`, `keep_first`), latest observation retrieval, full ordered series retrieval, timerange filtering, explicit empty timeline handling, and seamless `FloodExtentResult` integration factory
+  - Scientific Boundaries: Represents potential/new surface-water flood extent, not structural building damage; consumes discrete response-gap observations without fabricating missing data; does not claim unvalidated future disaster predictions
 
 ### Emergency Response & Decision Support Engines
 - **T-014 Resource Optimization API**: OPERATIONAL
@@ -116,7 +120,7 @@ Status:
 - **T-015 What-If Simulation Engine**: OPERATIONAL
   - Endpoints: `POST /api/v1/what-if/simulate`, `GET /api/v1/what-if/sample-payload`
   - Granular before-and-after comparative scenario shifts (stockpile, demand surges, local clinic capacity loss, priority overrides)
-- **T-016 Future Response Gap Timeline**: OPERATIONAL
+- **T-016 Future Response Gap Timeline (Planning Model)**: OPERATIONAL
   - Endpoints: `POST /api/v1/future-gap/timeline`, `GET /api/v1/future-gap/sample-payload`
   - Deterministic multi-horizon demand/capacity/response-gap projection across time points (e.g., 0h, 6h, 12h, 18h, 24h)
 - **T-017 Flood Impact + GIS Zone Intelligence**: OPERATIONAL
@@ -129,14 +133,37 @@ Status:
   - Reuses `GISFloodImpactService` and `ResourceOptimizationService` directly without logic duplication
 
 ### Test Suite
-- Total Tests: **88/88 PASSED, 0 FAILURES** across all repository test suites (City GIS Data Foundation, End-to-End Pipeline, GIS Impact, Optimization, What-If, Timeline, Flood Detection, Raster Ingestion, NDWI Detection)
+- Total Tests: **162/162 PASSED, 0 FAILURES** across all repository test suites
+  - `test_response_gap_timeline.py`: 29/29 PASSED (Step 6 timeline foundation)
+  - `test_flood_extent.py`: 45/45 PASSED (Step 5 flood extent extraction)
+  - `test_permanent_water_masker.py`: 12/12 PASSED (Step 4 permanent water masking)
+  - `test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`: 19/19 PASSED (Steps 1-3)
+  - `test_timeline_engine.py`: 12/12 PASSED (T-016 planning timeline)
+  - `test_flood_response_pipeline.py`: 6/6 PASSED (T-018 E2E pipeline)
+  - `test_gis_impact.py`: 10/10 PASSED (T-017 GIS impact)
+  - `test_what_if_engine.py`: 11/11 PASSED (T-015 simulation)
+  - `test_optimization_engine.py`, `test_optimization_foundation.py`: 14/14 PASSED (T-014 optimization)
+  - `test_city_gis_foundation.py`: 4/4 PASSED (T-019 City GIS data)
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
 - Synthetic Resources & Geometries: explicitly tagged as `DEMO DATA`
 - Satellite Test Fixtures: strictly ephemeral in-memory/tempfile GeoTIFF fixtures for unit tests
 
-## Ready Next Tasks
-- **Phase 1 Step 4 (Flood Pipeline)**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate newly flooded areas from baseline water bodies
-- **T-020**: LLM Copilot integration connecting to optimization, timeline, and GIS impact endpoints
- main
+## Step 6 Implementation Summary & Limitations
+- **Completed**: Step 6 Future Response-Gap Timeline backend foundation (`backend/app/schemas/response_gap_timeline.py`, `backend/app/services/response_gap_timeline_service.py`, `backend/tests/test_response_gap_timeline.py`).
+- **Files Created**:
+  - `backend/app/schemas/response_gap_timeline.py`
+  - `backend/app/services/response_gap_timeline_service.py`
+  - `backend/tests/test_response_gap_timeline.py`
+- **Files Modified**:
+  - `backend/app/schemas/timeline.py`
+  - `backend/app/schemas/__init__.py`
+  - `backend/app/services/timeline_service.py`
+  - `backend/app/services/__init__.py`
+  - `CURRENT_STATE.md`
+- **Tests Passed**: 29/29 focused tests in `test_response_gap_timeline.py`; 162/162 repository tests in full pytest run.
+- **Limitations**:
+  - The timeline represents discrete historical or supplied potential surface-water flood extents and response-gap observations; it does not forecast physical flood propagation without external hydrological models.
+  - Flood extent observations do not evaluate structural integrity or building destruction.
+  - Missing observation points are not silently interpolated or fabricated.
