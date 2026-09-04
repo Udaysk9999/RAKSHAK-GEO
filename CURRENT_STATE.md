@@ -1,97 +1,156 @@
 # CURRENT STATE — CITYSHIELD GIS (RAKSHAK-GEO)
 
-Last updated: September 3, 2026
+Last updated: September 4, 2026
 
 ## Overall Progress
 
-Phase: Phase 1 — Step 9 (T-020 Completed)
+Phase 1 — Core backend completed; frontend/integration is the next major phase.
 
 Status:
-██████████ 100%
+██████████ 100% backend foundation
 
 ## Working / Verified in Repository
 
 ### Backend Core
+
 - FastAPI Core Framework: OPERATIONAL (`backend/app/main.py`)
 - Health Check: OPERATIONAL (`GET /api/health`)
 
-### Grounded LLM Copilot (T-020)
-- Architecture: OPERATIONAL (`backend/app/services/copilot/`)
-  - Grounded Conversational Router: LLM functions strictly as interface/router/explainer; existing CITYSHIELD services remain the spatial/numerical source of truth.
-  - Zero hallucinated calculations: no arbitrary SQL, no python eval/exec, no fabricated metrics.
-- 6-Tool Strict Allowlist: OPERATIONAL (`backend/app/services/copilot/tools.py`)
-  1. `get_city_gis_data` -> PostGIS / CityGISRepository
-  2. `assess_flood_gis_impact` -> GISFloodImpactService
-  3. `optimize_resource_allocation` -> ResourceOptimizationService
-  4. `simulate_what_if_scenario` -> WhatIfSimulationService
-  5. `project_future_gap_timeline` -> FutureGapTimelineService
-  6. `run_end_to_end_flood_response` -> FloodResponsePipelineService
-- Provider Abstraction: OPERATIONAL (`backend/app/services/copilot/provider.py`)
-  - `MockLLMProvider`: 100% deterministic offline provider for hermetic testing.
-  - `OpenRouterLLMProvider`: OpenAI-compatible live provider reading `OPENROUTER_API_KEY` and `COPILOT_MODEL`.
-  - Factory Selection: Automatically falls back to `MockLLMProvider` when key is absent without failure.
-- API Endpoints: OPERATIONAL (`backend/app/api/v1/endpoints/copilot.py`)
-  - `POST /api/v1/copilot/chat`: Process natural language disaster requests.
-  - `GET /api/v1/copilot/sample-payload`: Reference query and response payload with explicit `DEMO DATA` tagging.
-- Performance & Latency Optimization (Step 6):
-  - 1-call fast path (`fast_explanation=True`): single LLM request handles tool selection and argument extraction, followed by instant deterministic grounded explanation (0ms overhead).
-  - Average latency reduced from ~9.48s to ~3.20s (~66% reduction across live benchmark queries).
-  - Prompt tokens pruned by removing redundant tool markdown; context window bounded to recent turns.
-- Security Verification:
-  - `.env` excluded from Git via `.gitignore`.
-  - Zero API key material in logs, repr (`[REDACTED]`), or API response contracts.
+### Grounded LLM Copilot (T-020) — COMPLETED
 
-### PostGIS & City GIS Data Foundation (T-019)
-- Configuration: OPERATIONAL (`backend/app/core/config.py`, PostgreSQL/PostGIS settings)
-- Connectivity Diagnostics: OPERATIONAL (`backend/app/db/session.py`, graceful fallback to seed fixtures when live DB offline)
-- Spatial Schemas & Models: OPERATIONAL (`backend/app/schemas/city_gis.py`)
-  - Wards / Administrative Zones: Polygon/MultiPolygon (`WardZoneGeometry`)
-  - Buildings & Infrastructure: Point/Polygon (`BuildingFootprint`)
-  - Emergency Hospitals: Point/Polygon (`HospitalFacility`)
-  - Evacuation Shelters: Point/Polygon (`ShelterFacility`)
-  - Road Network & Evacuation Corridors: LineString/MultiLineString (`RoadSegment`)
-  - Demographics & Population: (`PopulationDemographic`)
-  - City Metadata & Dataset Lineage: (`CityMetadata`, `DatasetSource`)
-- PostGIS DDL Migration Script: OPERATIONAL (`backend/app/db/init_db.sql` with GiST spatial indexes and foreign keys)
-- City Dataset Repository: `data/city/` with `raw/`, `processed/`, and `test/` layout
-- Data Access Repository Layer: OPERATIONAL (`CityGISRepository` in `backend/app/services/city_gis_repository.py`)
-- Endpoints: `GET /api/v1/city-data/status`, `GET /api/v1/city-data/summary`, `GET /api/v1/city-data/wards`, `GET /api/v1/city-data/buildings`, `GET /api/v1/city-data/hospitals`, `GET /api/v1/city-data/shelters`, `GET /api/v1/city-data/roads`, `GET /api/v1/city-data/population`, `GET /api/v1/city-data/resources`
+- Grounded conversational router using existing CITYSHIELD services as source of truth.
+- No arbitrary SQL, Python eval/exec, or fabricated metrics.
+- Strict 6-tool allowlist:
+  1. `get_city_gis_data`
+  2. `assess_flood_gis_impact`
+  3. `optimize_resource_allocation`
+  4. `simulate_what_if_scenario`
+  5. `project_future_gap_timeline`
+  6. `run_end_to_end_flood_response`
+- Provider abstraction:
+  - `MockLLMProvider` for deterministic offline testing
+  - `OpenRouterLLMProvider` for live inference
+- API:
+  - `POST /api/v1/copilot/chat`
+  - `GET /api/v1/copilot/sample-payload`
+- `.env` excluded from Git and API-key material redacted from logs.
 
-### Satellite Imagery & Flood Detection Pipeline (Friend 1 Foundation)
-- Foundation & Schemas: OPERATIONAL (`backend/app/schemas/flood.py`)
-- Raster Ingestion: OPERATIONAL (`GeoTIFFRasterProcessor` in `backend/app/services/flood_service.py` using `rasterio` & `pyproj`)
-- NDWI Water Detection: OPERATIONAL (`NDWIWaterDetector` in `backend/app/services/flood_service.py` implementing McFeeters NDWI: `(Green - NIR) / (Green + NIR)`)
-- Band Validation: Shape, dimensionality, CRS, resolution, and bounding-box alignment validation between B03 and B08
-- Safety Guards: Division-by-zero handled with NaN assignment; Nodata pixels strictly masked out (never classified as water)
-- Test Suite: 27/27 PASSED across flood modules (`test_flood_foundation.py`, `test_raster_ingestion.py`, `test_ndwi_water_detector.py`)
+### Satellite Imagery & Flood Detection — COMPLETED
 
-### Emergency Response & Decision Support Engines
-- **T-014 Resource Optimization API**: OPERATIONAL
-  - Endpoints: `POST /api/v1/optimization/allocate`, `POST /api/v1/optimization/optimize`, `GET /api/v1/optimization/status`, `GET /api/v1/optimization/sample-payload`
-  - Fully tested deterministic multi-criteria allocation solver with priority weighting and equitable coverage options
-- **T-015 What-If Simulation Engine**: OPERATIONAL
-  - Endpoints: `POST /api/v1/what-if/simulate`, `GET /api/v1/what-if/sample-payload`
-  - Granular before-and-after comparative scenario shifts (stockpile, demand surges, local clinic capacity loss, priority overrides)
-- **T-016 Future Response Gap Timeline**: OPERATIONAL
-  - Endpoints: `POST /api/v1/future-gap/timeline`, `GET /api/v1/future-gap/sample-payload`
-  - Deterministic multi-horizon demand/capacity/response-gap projection across time points (e.g., 0h, 6h, 12h, 18h, 24h)
-- **T-017 Flood Impact + GIS Zone Intelligence**: OPERATIONAL
-  - Endpoints: `POST /api/v1/gis/impact`, `GET /api/v1/gis/sample-payload`
-  - 2D vector spatial intersection between flood extents and ward boundaries / building footprints
-  - Submerged area (sq km), flooded percentage, and building inundation classification (UNAFFECTED, LOW, MODERATE, HIGH, CRITICAL; never labeled "destroyed")
-- **T-018 End-to-End Flood Response Pipeline**: OPERATIONAL
-  - Endpoints: `POST /api/v1/flood-response/analyze`, `GET /api/v1/flood-response/sample-payload`
-  - Seamlessly chains: Flood Extent Vector -> GIS Spatial Intersection -> Dynamic Zone Response Gap -> Resource Optimization Dispatch
-  - Reuses `GISFloodImpactService` and `ResourceOptimizationService` directly without logic duplication
+Friend 1 delivered the satellite/flood pipeline on `feature/future-response-gap`, and the work is merged into `main`.
 
-### Test Suite
-- Total Tests: **132/132 PASSED, 0 FAILURES** across all repository test suites (Copilot Live & Unit, Copilot Services & Tools, OpenRouter Provider, City GIS Data Foundation, End-to-End Pipeline, GIS Impact, Optimization, What-If, Timeline, Flood Detection, Raster Ingestion, NDWI Detection)
+- GeoTIFF raster ingestion using `rasterio` and `pyproj`
+- NDWI water detection
+- Permanent-water masking
+- Flood extent extraction
+- GeoJSON flood extent vectorization
+- Spatial/geodetic integrity checks
+- Synthetic raster fixtures only for testing; no fake satellite imagery committed
 
-### Data & Contracts
-- Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
-- Synthetic Resources & Geometries: explicitly tagged as `DEMO DATA`
-- Satellite Test Fixtures: strictly ephemeral in-memory/tempfile GeoTIFF fixtures for unit tests
+Key implementations:
+- `GeoTIFFRasterProcessor`
+- `NDWIWaterDetector`
+- `PermanentWaterMasker`
+- `FloodExtentAnalyzer`
+- `GeoJSONFloodExporter`
+- `FloodExtentExtractor`
+- `FloodDetectionPipeline`
 
-## Ready Next Tasks
-- **Phase 1 Step 4 (Flood Pipeline)**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate newly flooded areas from baseline water bodies
-- **Frontend / Command Dashboard**: Connect React/Vite map interface to `/api/v1/copilot/chat` and spatial response layers
+### Future Response-Gap Timeline — COMPLETED
+
+- `ResponseGapTimelinePoint`
+- `ResponseGapTimeline`
+- `DuplicateTimestampPolicy`
+- `FutureResponseGapTimelineService`
+- Chronological ordering and timestamp handling
+- Non-negative area/gap validation
+- UTC normalization
+- Timerange filtering
+- Explicit handling of empty timelines
+- Integration with flood-extent results
+
+Scientific limitation:
+This timeline represents supplied/discrete response-gap observations and deterministic planning projections. It does not claim validated physical flood propagation without external hydrological or predictive models.
+
+### City GIS / PostGIS Foundation (T-019) — COMPLETED
+
+- City metadata and dataset lineage
+- Ward geometry
+- Building footprints
+- Hospitals
+- Shelters
+- Roads
+- Population/demographics
+- Emergency resources
+- PostGIS-ready schema and spatial indexes
+- Repository layer with deterministic seed-data fallback
+- City-data API endpoints
+
+### Emergency Response & Decision Support
+
+#### T-014 Resource Optimization — COMPLETED
+- Deterministic multi-criteria resource allocation
+- Priority/severity weighting
+- Capacity and demand constraints
+- Equitable coverage options
+
+#### T-015 What-If Simulation — COMPLETED
+- Stockpile changes
+- Demand changes
+- Local capacity changes
+- Priority/severity overrides
+- Baseline vs simulated comparison
+- Preserves baseline immutability
+
+#### T-016 Future Response Gap Planning Model — COMPLETED
+- Deterministic multi-horizon projection
+- Demand/capacity/response-gap calculations
+
+#### T-017 Flood Impact + GIS Zone Intelligence — COMPLETED
+- Flood extent intersected with ward/building geometries
+- Flooded area and percentage
+- Building inundation classification:
+  `UNAFFECTED`, `LOW`, `MODERATE`, `HIGH`, `CRITICAL`
+- Never labels buildings as destroyed
+
+#### T-018 End-to-End Flood Response Pipeline — COMPLETED
+
+Flood Extent
+→ GIS Spatial Impact
+→ Zone Response Gap
+→ Resource Optimization / Dispatch
+
+## Test Status
+
+All currently implemented backend modules are covered by automated tests.
+
+The repository has passed the latest full test suite associated with the merged backend work.
+
+## Data & Scientific Boundaries
+
+- Synthetic resources/geometries are explicitly tagged `DEMO DATA`.
+- Satellite test fixtures are temporary/in-memory or tempfile GeoTIFFs.
+- Flood extent means potential/new surface water detected from imagery.
+- Flood extent does not prove structural damage or building destruction.
+- Population impact must come from downstream GIS/impact data.
+- Future timeline outputs must not be described as validated flood propagation unless supported by a real predictive model.
+
+## Next Priority
+
+### Frontend / Command Dashboard
+
+Build the frontend and connect it to the existing backend APIs.
+
+Target dashboard capabilities:
+
+- City/map view
+- Flood extent layer
+- Ward/zone selection
+- Affected buildings and area
+- Response gap
+- Resource allocation
+- Future response-gap timeline
+- What-If simulation
+- Grounded Copilot panel
+
+The frontend should consume existing backend APIs and should not duplicate backend decision logic.

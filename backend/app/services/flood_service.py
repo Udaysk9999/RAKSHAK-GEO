@@ -17,10 +17,16 @@ import math
 import glob
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import rasterio
+import rasterio.features
+import rasterio.transform
+from rasterio.transform import Affine
 import pyproj
+import shapely.geometry
+import shapely.validation
 
 from app.schemas.flood import (
     RasterBoundingBox,
@@ -28,9 +34,15 @@ from app.schemas.flood import (
     WaterDetectionConfig,
     SurfaceWaterMaskResult,
     PermanentWaterMaskConfig,
+    PotentialFloodWaterResult,
+    PermanentWaterMaskResult,
     FloodExtentMetrics,
+    GeoJSONGeometry,
+    GeoJSONFeature,
     GeoJSONFeatureCollection,
+    FloodExtentExtractionConfig,
     FloodExtentResponse,
+    FloodExtentResult,
 )
 
 
@@ -497,6 +509,295 @@ class BasePermanentWaterMasker(ABC):
         pass
 
 
+class PermanentWaterMasker(BasePermanentWaterMasker):
+    """Concrete permanent-water masker separating detected surface water from baseline water bodies.
+
+    Scientific & Operational Rationale:
+        Satellite optical water detection (NDWI) classifies all water surfaces indiscriminately
+        (rivers, lakes, reservoirs, swimming pools, retention basins, and flood waters).
+        To derive potential/ephemeral flood inundation, baseline permanent water must be subtracted:
+            new_flood_water = detected_water AND NOT permanent_water
+
+    Deterministic Masking Rules:
+        - detected_water = 1, permanent_water = 1 -> new_water = 0 (baseline river/lake)
+        - detected_water = 1, permanent_water = 0 -> new_water = 1 (potential flood inundation)
+        - detected_water = 0, permanent_water = 0 -> new_water = 0 (dry land)
+        - detected_water = 0, permanent_water = 1 -> new_water = 0 (receded baseline or dry riverbed)
+        - nodata / invalid pixels -> new_water = 0 (never classified as flood)
+
+    Spatial Alignment Validation:
+        Strictly validates that detected water and permanent water masks have matching:
+        - Array shape / dimensions (height, width)
+        - CRS (Coordinate Reference System)
+        - Spatial resolution in meters
+        - Affine transform / Bounding box
+        Raises ValueError on any spatial mismatch to avoid silent geometric distortions.
+
+    Limitations:
+        - Identifies new/potential surface water; does NOT prove structural building damage.
+        - Accuracy depends on the quality and temporal relevance of the permanent water baseline.
+    """
+
+    def validate_mask_alignment(
+        self,
+        detected_water_mask: Any,
+        permanent_water_mask: Any,
+        meta_detected: Optional[RasterMetadata] = None,
+        meta_permanent: Optional[RasterMetadata] = None,
+        transform_detected: Optional[Any] = None,
+        transform_permanent: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Validate shape, dimensionality, and spatial metadata compatibility of water masks."""
+        det_arr = np.asarray(detected_water_mask)
+        perm_arr = np.asarray(permanent_water_mask)
+
+        # Squeeze 3D single-band raster arrays
+        if det_arr.ndim == 3 and det_arr.shape[0] == 1:
+            det_arr = det_arr[0]
+        if perm_arr.ndim == 3 and perm_arr.shape[0] == 1:
+            perm_arr = perm_arr[0]
+
+        if det_arr.ndim != 2 or perm_arr.ndim != 2:
+            raise ValueError(
+                f"Expected 2D raster masks, but received detected ndim={det_arr.ndim} and permanent ndim={perm_arr.ndim}."
+            )
+
+        if det_arr.shape != perm_arr.shape:
+            raise ValueError(
+                f"Mask shape mismatch: detected water mask {det_arr.shape} != permanent water mask {perm_arr.shape}."
+            )
+
+        # Validate spatial metadata if provided
+        if meta_detected is not None and meta_permanent is not None:
+            if meta_detected.crs != meta_permanent.crs:
+                raise ValueError(
+                    f"CRS mismatch: detected water CRS '{meta_detected.crs}' != permanent water CRS '{meta_permanent.crs}'."
+                )
+            if abs(meta_detected.resolution_meters - meta_permanent.resolution_meters) > 1e-3:
+                raise ValueError(
+                    f"Resolution mismatch: detected water ({meta_detected.resolution_meters}m) != "
+                    f"permanent water ({meta_permanent.resolution_meters}m)."
+                )
+            if meta_detected.width_px != meta_permanent.width_px or meta_detected.height_px != meta_permanent.height_px:
+                raise ValueError(
+                    f"Pixel dimension mismatch: detected ({meta_detected.width_px}x{meta_detected.height_px}) != "
+                    f"permanent ({meta_permanent.width_px}x{meta_permanent.height_px})."
+                )
+            if (
+                abs(meta_detected.bbox.min_lon - meta_permanent.bbox.min_lon) > 1e-4
+                or abs(meta_detected.bbox.min_lat - meta_permanent.bbox.min_lat) > 1e-4
+                or abs(meta_detected.bbox.max_lon - meta_permanent.bbox.max_lon) > 1e-4
+                or abs(meta_detected.bbox.max_lat - meta_permanent.bbox.max_lat) > 1e-4
+            ):
+                raise ValueError(
+                    f"Geospatial bounding box mismatch between detected water ({meta_detected.bbox}) "
+                    f"and permanent water ({meta_permanent.bbox})."
+                )
+
+        # Validate transform if provided
+        if transform_detected is not None and transform_permanent is not None:
+            t_det = tuple(transform_detected) if hasattr(transform_detected, "__iter__") else transform_detected
+            t_perm = tuple(transform_permanent) if hasattr(transform_permanent, "__iter__") else transform_permanent
+            if t_det != t_perm:
+                if len(t_det) == len(t_perm):
+                    if not np.allclose(np.array(t_det, dtype=float), np.array(t_perm, dtype=float), atol=1e-5):
+                        raise ValueError(
+                            f"Affine transform mismatch: detected {t_det} != permanent {t_perm}."
+                        )
+                else:
+                    raise ValueError(
+                        f"Affine transform mismatch: detected {t_det} != permanent {t_perm}."
+                    )
+
+        return det_arr, perm_arr
+
+    def compute_new_flood_water(
+        self,
+        detected_water_mask: Any,
+        permanent_water_mask: Any,
+        nodata_mask: Optional[Any] = None,
+    ) -> np.ndarray:
+        """Compute new / potential flood water: (detected == 1) & (permanent == 0) & (~nodata)."""
+        det_arr, perm_arr = self.validate_mask_alignment(detected_water_mask, permanent_water_mask)
+
+        # Identify invalid / nodata elements in inputs
+        invalid_mask = np.zeros(det_arr.shape, dtype=bool)
+        if np.issubdtype(det_arr.dtype, np.floating):
+            invalid_mask |= np.isnan(det_arr) | np.isinf(det_arr)
+        if np.issubdtype(perm_arr.dtype, np.floating):
+            invalid_mask |= np.isnan(perm_arr) | np.isinf(perm_arr)
+
+        if nodata_mask is not None:
+            invalid_mask |= np.asarray(nodata_mask, dtype=bool)
+
+        # Binary water condition: detected == 1 and permanent == 0
+        det_is_water = (det_arr == 1) & (~invalid_mask)
+        perm_is_water = (perm_arr == 1) & (~invalid_mask)
+
+        new_flood_bool = det_is_water & (~perm_is_water)
+
+        flood_mask = np.zeros(det_arr.shape, dtype=np.uint8)
+        flood_mask[new_flood_bool] = 1
+
+        return flood_mask
+
+    def mask_permanent_water(
+        self,
+        detected_water: Union[SurfaceWaterMaskResult, np.ndarray],
+        permanent_water: Union[np.ndarray, str],
+        metadata: Optional[RasterMetadata] = None,
+        meta_permanent: Optional[RasterMetadata] = None,
+        nodata_mask: Optional[np.ndarray] = None,
+        transform: Optional[Any] = None,
+        transform_permanent: Optional[Any] = None,
+        raster_processor: Optional[BaseRasterProcessor] = None,
+        config: Optional[PermanentWaterMaskConfig] = None,
+    ) -> PotentialFloodWaterResult:
+        """Execute permanent water masking and produce quantitative flood statistics and mask."""
+        if config is None:
+            config = PermanentWaterMaskConfig()
+
+        # Extract parameters if SurfaceWaterMaskResult was passed
+        if isinstance(detected_water, SurfaceWaterMaskResult):
+            det_mask = detected_water.water_mask
+            scene_id = detected_water.scene_id
+            if metadata is None:
+                metadata = detected_water.metadata
+            if transform is None:
+                transform = detected_water.transform
+            if nodata_mask is None and detected_water.ndwi_array is not None:
+                nodata_mask = np.isnan(detected_water.ndwi_array) | np.isinf(detected_water.ndwi_array)
+        else:
+            det_mask = detected_water
+            scene_id = metadata.scene_id if metadata else "UNKNOWN_SCENE"
+
+        # Load permanent water from file if string path was provided
+        if isinstance(permanent_water, str):
+            if not os.path.exists(permanent_water):
+                raise FileNotFoundError(f"Permanent water raster file not found: '{permanent_water}'")
+            if raster_processor is None:
+                raster_processor = GeoTIFFRasterProcessor()
+            meta_perm_file = raster_processor.read_metadata(permanent_water)
+            if meta_permanent is None:
+                meta_permanent = meta_perm_file
+            with rasterio.open(permanent_water) as src:
+                perm_mask = src.read(1)
+                if transform_permanent is None and src.transform is not None:
+                    transform_permanent = tuple(src.transform.to_gdal())
+        else:
+            perm_mask = permanent_water
+
+        # Alignment validation
+        det_arr, perm_arr = self.validate_mask_alignment(
+            det_mask,
+            perm_mask,
+            meta_detected=metadata,
+            meta_permanent=meta_permanent,
+            transform_detected=transform,
+            transform_permanent=transform_permanent,
+        )
+
+        # Derive nodata mask
+        total_pixels = int(det_arr.size)
+        invalid_pixels = np.zeros(det_arr.shape, dtype=bool)
+        if np.issubdtype(det_arr.dtype, np.floating):
+            invalid_pixels |= np.isnan(det_arr) | np.isinf(det_arr)
+        if np.issubdtype(perm_arr.dtype, np.floating):
+            invalid_pixels |= np.isnan(perm_arr) | np.isinf(perm_arr)
+        if nodata_mask is not None:
+            invalid_pixels |= np.asarray(nodata_mask, dtype=bool)
+
+        nodata_count = int(np.sum(invalid_pixels))
+        valid_pixels = total_pixels - nodata_count
+
+        # Compute new flood mask
+        flood_mask = self.compute_new_flood_water(det_arr, perm_arr, nodata_mask=invalid_pixels)
+
+        # Compute pixel counts on valid pixels
+        valid_det_water = (det_arr == 1) & (~invalid_pixels)
+        valid_perm_water = (perm_arr == 1) & (~invalid_pixels)
+        detected_water_pixels = int(np.sum(valid_det_water))
+        permanent_water_pixels = int(np.sum(valid_perm_water))
+        new_flood_water_pixels = int(np.sum(flood_mask == 1))
+
+        flood_fraction = (
+            round(float(new_flood_water_pixels / valid_pixels), 6) if valid_pixels > 0 else 0.0
+        )
+
+        transform_tuple = None
+        if transform is not None:
+            if hasattr(transform, "to_gdal"):
+                transform_tuple = tuple(transform.to_gdal())
+            elif isinstance(transform, (tuple, list)):
+                transform_tuple = tuple(transform)
+
+        if metadata is None:
+            metadata = RasterMetadata(
+                scene_id=scene_id,
+                crs="UNKNOWN",
+                bbox=RasterBoundingBox(min_lon=0.0, min_lat=0.0, max_lon=0.0, max_lat=0.0),
+                width_px=det_arr.shape[1],
+                height_px=det_arr.shape[0],
+                resolution_meters=10.0,
+            )
+
+        perm_uint8 = np.zeros(perm_arr.shape, dtype=np.uint8)
+        perm_uint8[valid_perm_water] = 1
+
+        return PotentialFloodWaterResult(
+            scene_id=scene_id,
+            metadata=metadata,
+            flood_water_mask=flood_mask,
+            permanent_water_mask=perm_uint8,
+            total_pixels=total_pixels,
+            valid_pixels=valid_pixels,
+            nodata_pixels=nodata_count,
+            detected_water_pixels=detected_water_pixels,
+            permanent_water_pixels=permanent_water_pixels,
+            new_flood_water_pixels=new_flood_water_pixels,
+            flood_fraction=flood_fraction,
+            transform=transform_tuple,
+        )
+
+    def apply_mask(
+        self,
+        detected_water_mask: Any,
+        mask_config: PermanentWaterMaskConfig,
+        spatial_bounds: Any = None,
+        permanent_water_mask: Optional[Any] = None,
+        metadata: Optional[RasterMetadata] = None,
+    ) -> Any:
+        """Subtract permanent water bodies from detected water mask adhering to BasePermanentWaterMasker contract."""
+        if permanent_water_mask is None:
+            if mask_config.mask_identifier and os.path.exists(mask_config.mask_identifier):
+                result = self.mask_permanent_water(
+                    detected_water=detected_water_mask,
+                    permanent_water=mask_config.mask_identifier,
+                    metadata=metadata,
+                    config=mask_config,
+                )
+                return result.flood_water_mask
+            else:
+                raise ValueError(
+                    "Permanent water mask array or valid mask_identifier file path must be provided."
+                )
+
+        if isinstance(detected_water_mask, SurfaceWaterMaskResult) or metadata is not None:
+            result = self.mask_permanent_water(
+                detected_water=detected_water_mask,
+                permanent_water=permanent_water_mask,
+                metadata=metadata,
+                config=mask_config,
+            )
+            return result.flood_water_mask
+        else:
+            return self.compute_new_flood_water(detected_water_mask, permanent_water_mask)
+
+
+# Alias for backward and forward compatibility
+BaselinePermanentWaterMasker = PermanentWaterMasker
+
+
 class BaseFloodExtentAnalyzer(ABC):
     """Abstract interface for calculating quantitative flood statistics and affected metrics."""
 
@@ -509,6 +810,82 @@ class BaseFloodExtentAnalyzer(ABC):
     ) -> FloodExtentMetrics:
         """Compute square kilometer flood areas and spatial statistics from pixel masks."""
         pass
+
+
+class FloodExtentAnalyzer(BaseFloodExtentAnalyzer):
+    """Concrete statistical flood extent analyzer calculating surface inundation metrics.
+
+    Scientific & Operational Rationale:
+        Quantifies surface water extent from binary raster masks using the source raster's
+        spatial pixel resolution. Differentiates net new/ephemeral flood inundation from baseline
+        permanent water bodies.
+
+    Guarantees:
+        - Rejects invalid/empty masks or negative spatial resolutions with descriptive ValueError.
+        - Calculates area deterministically from pixel counts and ground-sampling distance (GSD).
+        - Area unit for FloodExtentMetrics is strictly square kilometers (sq km).
+        - Correctly returns 0.0 metrics for all-zero masks.
+    """
+
+    def calculate_metrics(
+        self,
+        flood_water_mask: Any,
+        pixel_resolution_m: float,
+        permanent_water_mask: Optional[Any] = None,
+        affected_zones: Optional[List[str]] = None,
+    ) -> FloodExtentMetrics:
+        """Compute square kilometer flood areas and spatial statistics from pixel masks."""
+        flood_arr = np.asarray(flood_water_mask)
+        if flood_arr.ndim == 3 and flood_arr.shape[0] == 1:
+            flood_arr = flood_arr[0]
+
+        if flood_arr.ndim != 2:
+            raise ValueError(f"Expected 2D flood water mask, but received array with ndim={flood_arr.ndim}.")
+
+        if flood_arr.size == 0:
+            raise ValueError("Flood water mask cannot be empty.")
+
+        if pixel_resolution_m <= 0.0:
+            raise ValueError(f"Pixel resolution must be positive, but received {pixel_resolution_m} meters.")
+
+        # Pixel area in square kilometers: (meters^2) / 1,000,000
+        pixel_area_sq_km = (float(pixel_resolution_m) ** 2) / 1_000_000.0
+
+        # Filter out NaN/invalid from count
+        valid_flood = (flood_arr == 1)
+        if np.issubdtype(flood_arr.dtype, np.floating):
+            valid_flood &= ~np.isnan(flood_arr) & ~np.isinf(flood_arr)
+
+        flood_pixel_count = int(np.sum(valid_flood))
+        flood_extent_sq_km = round(float(flood_pixel_count * pixel_area_sq_km), 6)
+
+        if permanent_water_mask is not None:
+            perm_arr = np.asarray(permanent_water_mask)
+            if perm_arr.ndim == 3 and perm_arr.shape[0] == 1:
+                perm_arr = perm_arr[0]
+
+            if perm_arr.shape != flood_arr.shape:
+                raise ValueError(
+                    f"Mask shape mismatch: flood water {flood_arr.shape} != permanent water {perm_arr.shape}."
+                )
+
+            valid_perm = (perm_arr == 1)
+            if np.issubdtype(perm_arr.dtype, np.floating):
+                valid_perm &= ~np.isnan(perm_arr) & ~np.isinf(perm_arr)
+
+            perm_pixel_count = int(np.sum(valid_perm))
+            perm_extent_sq_km = round(float(perm_pixel_count * pixel_area_sq_km), 6)
+            total_extent_sq_km = round(float((flood_pixel_count + perm_pixel_count) * pixel_area_sq_km), 6)
+        else:
+            perm_extent_sq_km = 0.0
+            total_extent_sq_km = flood_extent_sq_km
+
+        return FloodExtentMetrics(
+            total_water_area_sq_km=total_extent_sq_km,
+            permanent_water_area_sq_km=perm_extent_sq_km,
+            flood_extent_sq_km=flood_extent_sq_km,
+            affected_zones=affected_zones or [],
+        )
 
 
 class BaseGeoJSONExporter(ABC):
@@ -525,6 +902,348 @@ class BaseGeoJSONExporter(ABC):
         pass
 
 
+class GeoJSONFloodExporter(BaseGeoJSONExporter):
+    """Concrete raster-to-vector polygonizer converting binary flood masks into RFC 7946 GeoJSON.
+
+    Scientific & Operational Rationale:
+        Vectorizes contiguous flood pixel clusters into geographic polygon geometries while
+        strictly preserving the raster's affine transformation and Coordinate Reference System (CRS).
+        Provides polygon cleaning, small-region noise filtering, and deterministic region metrics.
+
+    Geographic Area Calculation:
+        - For projected CRS (e.g. UTM Zone 43N / EPSG:32643), area is calculated in planar square units (m² / km²).
+        - For geographic CRS (e.g. WGS84 / EPSG:4326), geodesic ellipsoidal area is computed using pyproj.Geod
+          to ensure degree² is NEVER falsely reported as square meters.
+
+    Guarantees:
+        - Disconnected flood regions are extracted as separate polygon features.
+        - All-zero masks cleanly return an empty GeoJSON FeatureCollection with zero features.
+        - Generated polygons are valid shapely geometries (closed linear rings conforming to RFC 7946).
+        - Small-region noise filtering is explicitly configurable via FloodExtentExtractionConfig.
+        - Rejects non-2D arrays, empty masks, or mismatched metadata shapes with informative ValueErrors.
+    """
+
+    def _resolve_affine_transform(
+        self,
+        metadata: RasterMetadata,
+        transform: Optional[Any] = None,
+    ) -> Affine:
+        """Resolve or reconstruct affine transform from transform tuple/Affine or metadata bounding box."""
+        if transform is not None:
+            if isinstance(transform, Affine):
+                return transform
+            if hasattr(transform, "to_gdal"):
+                return Affine.from_gdal(*transform.to_gdal())
+            if isinstance(transform, (tuple, list)):
+                if len(transform) == 6:
+                    try:
+                        # Test if tuple is in GDAL format (c, a, b, f, d, e)
+                        return Affine.from_gdal(*transform)
+                    except Exception:
+                        return Affine(*transform)
+                elif len(transform) == 9:
+                    return Affine(*transform[:6])
+
+        # Derive affine transform from bounding box and pixel dimensions
+        if metadata.bbox is not None and metadata.width_px > 0 and metadata.height_px > 0:
+            return rasterio.transform.from_bounds(
+                metadata.bbox.min_lon,
+                metadata.bbox.min_lat,
+                metadata.bbox.max_lon,
+                metadata.bbox.max_lat,
+                metadata.width_px,
+                metadata.height_px,
+            )
+
+        raise ValueError(
+            f"Cannot resolve affine transform: neither transform nor valid metadata bounding box was provided."
+        )
+
+    def _compute_polygon_area_m2(
+        self,
+        polygon: Any,
+        crs_str: str,
+        resolution_meters: float,
+    ) -> float:
+        """Compute true geodesic or planar area in square meters for a Shapely polygon."""
+        if polygon is None or polygon.is_empty:
+            return 0.0
+
+        try:
+            crs_obj = pyproj.CRS.from_user_input(crs_str)
+            if crs_obj.is_geographic or crs_str.upper() in ("EPSG:4326", "OGC:CRS84", "WGS84"):
+                geod = pyproj.Geod(ellps="WGS84")
+                area_m2, _ = geod.geometry_area_perimeter(polygon)
+                return abs(float(area_m2))
+            else:
+                # Projected CRS: polygon.area is in linear CRS units (m^2 for standard projected systems)
+                return abs(float(polygon.area))
+        except Exception:
+            # Fallback for unknown / unparseable CRS: use polygon area or pixel-based estimate
+            return abs(float(polygon.area))
+
+    def export_geojson(
+        self,
+        flood_water_mask: Any,
+        metadata: RasterMetadata,
+        transform: Optional[Any] = None,
+        config: Optional[FloodExtentExtractionConfig] = None,
+        properties: Optional[Dict[str, Any]] = None,
+    ) -> GeoJSONFeatureCollection:
+        """Convert binary flood raster mask into RFC 7946 GeoJSON FeatureCollection."""
+        if config is None:
+            config = FloodExtentExtractionConfig()
+
+        if metadata is None:
+            raise ValueError("RasterMetadata is required for GeoJSON export.")
+
+        if not metadata.crs:
+            raise ValueError("Raster metadata must include a valid CRS string.")
+
+        if metadata.width_px <= 0 or metadata.height_px <= 0:
+            raise ValueError(
+                f"Invalid raster dimensions in metadata: width={metadata.width_px}, height={metadata.height_px}."
+            )
+
+        if metadata.resolution_meters <= 0.0:
+            raise ValueError(f"Raster resolution must be positive, received {metadata.resolution_meters}m.")
+
+        flood_arr = np.asarray(flood_water_mask)
+        if flood_arr.ndim == 3 and flood_arr.shape[0] == 1:
+            flood_arr = flood_arr[0]
+
+        if flood_arr.ndim != 2:
+            raise ValueError(f"Expected 2D flood water mask, but received array with ndim={flood_arr.ndim}.")
+
+        if flood_arr.size == 0:
+            raise ValueError("Flood water mask cannot be empty.")
+
+        if flood_arr.shape != (metadata.height_px, metadata.width_px):
+            raise ValueError(
+                f"Mask shape {flood_arr.shape} does not match metadata dimensions "
+                f"({metadata.height_px}, {metadata.width_px})."
+            )
+
+        # Handle all-zero mask cleanly
+        if np.sum(flood_arr == 1) == 0:
+            return GeoJSONFeatureCollection(type="FeatureCollection", features=[], bbox=None)
+
+        aff = self._resolve_affine_transform(metadata, transform)
+        connectivity = config.connectivity if config.connectivity in (4, 8) else 8
+
+        # Binary uint8 mask for rasterio shapes
+        bin_mask = (flood_arr == 1).astype(np.uint8)
+
+        shapes_gen = rasterio.features.shapes(
+            bin_mask,
+            mask=(bin_mask == 1),
+            transform=aff,
+            connectivity=connectivity,
+        )
+
+        features: List[GeoJSONFeature] = []
+        all_shapely_polygons: List[Any] = []
+        region_counter = 0
+
+        for geom_dict, val in shapes_gen:
+            if val != 1:
+                continue
+
+            try:
+                poly = shapely.geometry.shape(geom_dict)
+            except Exception:
+                continue
+
+            if not poly.is_valid:
+                poly = shapely.validation.make_valid(poly)
+
+            if poly.is_empty:
+                continue
+
+            # Extract individual polygons from MultiPolygon / GeometryCollection
+            if poly.geom_type == "Polygon":
+                poly_parts = [poly]
+            elif poly.geom_type in ("MultiPolygon", "GeometryCollection"):
+                poly_parts = [p for p in poly.geoms if p.geom_type == "Polygon" and not p.is_empty and p.area > 0]
+            else:
+                continue
+
+            for p in poly_parts:
+                # Count exact flood pixels within this polygon boundary
+                try:
+                    p_mask = rasterio.features.geometry_mask(
+                        [p],
+                        out_shape=flood_arr.shape,
+                        transform=aff,
+                        invert=True,
+                    )
+                    poly_px_count = int(np.sum((flood_arr == 1) & p_mask))
+                except Exception:
+                    poly_px_count = 1
+
+                if poly_px_count == 0:
+                    continue
+
+                # Configurable small-region filtering
+                if poly_px_count < config.min_pixel_cluster_size:
+                    continue
+
+                # Geometry simplification if requested
+                if config.simplify_tolerance is not None and config.simplify_tolerance > 0.0:
+                    p_simplified = p.simplify(config.simplify_tolerance, preserve_topology=True)
+                    if not p_simplified.is_valid:
+                        p_simplified = shapely.validation.make_valid(p_simplified)
+                    if not p_simplified.is_empty and p_simplified.geom_type == "Polygon":
+                        p = p_simplified
+
+                # Compute area
+                area_m2 = self._compute_polygon_area_m2(p, metadata.crs, metadata.resolution_meters)
+                if config.area_unit == "sq_km":
+                    poly_area = round(float(area_m2 / 1_000_000.0), 6)
+                    area_unit_str = "sq_km"
+                else:
+                    poly_area = round(float(area_m2), 2)
+                    area_unit_str = "sq_m"
+
+                region_counter += 1
+                region_id = f"region_{region_counter}"
+
+                feature_props: Dict[str, Any] = {
+                    "region_id": region_id,
+                    "flooded_pixel_count": poly_px_count,
+                    "area": poly_area,
+                    "area_unit": area_unit_str,
+                }
+                if properties:
+                    for k, v in properties.items():
+                        if k not in feature_props:
+                            feature_props[k] = v
+
+                # Convert coordinates to GeoJSON schema
+                geo_mapping = shapely.geometry.mapping(p)
+                geojson_geom = GeoJSONGeometry(
+                    type=p.geom_type,
+                    coordinates=geo_mapping["coordinates"],
+                )
+                feature = GeoJSONFeature(
+                    type="Feature",
+                    geometry=geojson_geom,
+                    properties=feature_props,
+                )
+                features.append(feature)
+                all_shapely_polygons.append(p)
+
+        # Compute overall bounding box of extracted features
+        fc_bbox: Optional[List[float]] = None
+        if all_shapely_polygons:
+            min_x = min(p.bounds[0] for p in all_shapely_polygons)
+            min_y = min(p.bounds[1] for p in all_shapely_polygons)
+            max_x = max(p.bounds[2] for p in all_shapely_polygons)
+            max_y = max(p.bounds[3] for p in all_shapely_polygons)
+            fc_bbox = [round(min_x, 6), round(min_y, 6), round(max_x, 6), round(max_y, 6)]
+
+        return GeoJSONFeatureCollection(
+            type="FeatureCollection",
+            features=features,
+            bbox=fc_bbox,
+        )
+
+
+class FloodExtentExtractor:
+    """End-to-end service combining statistical analysis and vector polygon extraction for flood extents.
+
+    Orchestrates:
+        1. BaseGeoJSONExporter (vectorization & polygonization)
+        2. BaseFloodExtentAnalyzer (quantitative flood statistics)
+        3. Packaging into typed FloodExtentResult & FloodExtentResponse
+    """
+
+    def __init__(
+        self,
+        analyzer: Optional[BaseFloodExtentAnalyzer] = None,
+        exporter: Optional[BaseGeoJSONExporter] = None,
+    ):
+        self.analyzer = analyzer or FloodExtentAnalyzer()
+        self.exporter = exporter or GeoJSONFloodExporter()
+
+    def extract_flood_extent(
+        self,
+        flood_input: Union[PotentialFloodWaterResult, SurfaceWaterMaskResult, np.ndarray],
+        metadata: Optional[RasterMetadata] = None,
+        permanent_water_mask: Optional[np.ndarray] = None,
+        transform: Optional[Any] = None,
+        config: Optional[FloodExtentExtractionConfig] = None,
+        affected_zones: Optional[List[str]] = None,
+    ) -> FloodExtentResult:
+        """Extract flood extent polygons and calculate quantitative metrics."""
+        if config is None:
+            config = FloodExtentExtractionConfig()
+
+        if isinstance(flood_input, PotentialFloodWaterResult):
+            flood_mask = flood_input.flood_water_mask
+            scene_id = flood_input.scene_id
+            meta = metadata or flood_input.metadata
+            tf = transform or flood_input.transform
+            perm_mask = permanent_water_mask if permanent_water_mask is not None else flood_input.permanent_water_mask
+        elif isinstance(flood_input, SurfaceWaterMaskResult):
+            flood_mask = flood_input.water_mask
+            scene_id = flood_input.scene_id
+            meta = metadata or flood_input.metadata
+            tf = transform or flood_input.transform
+            perm_mask = permanent_water_mask
+        else:
+            flood_mask = flood_input
+            if metadata is None:
+                raise ValueError("RasterMetadata must be provided when flood_input is a raw numpy array.")
+            scene_id = metadata.scene_id
+            meta = metadata
+            tf = transform
+            perm_mask = permanent_water_mask
+
+        # Generate GeoJSON vector features
+        geojson_fc = self.exporter.export_geojson(
+            flood_water_mask=flood_mask,
+            metadata=meta,
+            transform=tf,
+            config=config,
+        )
+
+        # Calculate quantitative statistical metrics
+        metrics = self.analyzer.calculate_metrics(
+            flood_water_mask=flood_mask,
+            pixel_resolution_m=meta.resolution_meters,
+            permanent_water_mask=perm_mask,
+            affected_zones=affected_zones,
+        )
+
+        # Compute totals from extracted features
+        polygon_count = len(geojson_fc.features)
+        flooded_pixel_count = sum(f.properties.get("flooded_pixel_count", 0) for f in geojson_fc.features)
+        flooded_area = round(sum(f.properties.get("area", 0.0) for f in geojson_fc.features), 6)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        return FloodExtentResult(
+            scene_id=scene_id,
+            metadata=meta,
+            flooded_pixel_count=flooded_pixel_count,
+            polygon_count=polygon_count,
+            flooded_area=flooded_area,
+            area_unit=config.area_unit,
+            bbox=geojson_fc.bbox,
+            crs=meta.crs,
+            resolution_meters=meta.resolution_meters,
+            geojson=geojson_fc,
+            metrics=metrics,
+            timestamp=now_iso,
+        )
+
+
+# Aliases for flexibility and naming consistency
+FloodExtentVectorExporter = GeoJSONFloodExporter
+FloodExtentDeriver = FloodExtentExtractor
+
+
 class FloodDetectionPipeline:
     """Orchestrator class encapsulating the satellite-to-GeoJSON flood detection pipeline.
 
@@ -539,12 +1258,17 @@ class FloodDetectionPipeline:
         permanent_masker: Optional[BasePermanentWaterMasker] = None,
         flood_analyzer: Optional[BaseFloodExtentAnalyzer] = None,
         geojson_exporter: Optional[BaseGeoJSONExporter] = None,
+        flood_extractor: Optional[FloodExtentExtractor] = None,
     ):
         self.raster_processor = raster_processor
         self.water_detector = water_detector
         self.permanent_masker = permanent_masker
         self.flood_analyzer = flood_analyzer
         self.geojson_exporter = geojson_exporter
+        self.flood_extractor = flood_extractor or FloodExtentExtractor(
+            analyzer=flood_analyzer,
+            exporter=geojson_exporter,
+        )
 
     def validate_pipeline_readiness(self) -> Dict[str, bool]:
         """Check whether each pipeline stage processor has been wired with an active implementation."""
@@ -559,13 +1283,14 @@ class FloodDetectionPipeline:
     def execute_pipeline(
         self,
         source_path: str,
-        water_config: WaterDetectionConfig,
-        mask_config: PermanentWaterMaskConfig,
+        water_config: Optional[WaterDetectionConfig] = None,
+        mask_config: Optional[PermanentWaterMaskConfig] = None,
+        extraction_config: Optional[FloodExtentExtractionConfig] = None,
     ) -> FloodExtentResponse:
-        """Execute the full 5-stage flood pipeline.
+        """Execute the full 5-stage flood pipeline from satellite image to FloodExtentResponse.
 
         Raises:
-            NotImplementedError: If any pipeline stage component has not yet been implemented or injected.
+            NotImplementedError: If any pipeline stage component has not been injected.
             FileNotFoundError: If the satellite image source path cannot be found.
         """
         readiness = self.validate_pipeline_readiness()
@@ -576,12 +1301,50 @@ class FloodDetectionPipeline:
                 "are pending integration of GIS data/libraries in subsequent steps."
             )
 
-        # Future pipeline sequence:
-        # 1. meta = self.raster_processor.read_metadata(source_path)
-        # 2. bands = self.raster_processor.extract_bands(source_path, ["GREEN", "NIR"])
-        # 3. idx = self.water_detector.compute_index(bands["GREEN"], bands["NIR"], water_config)
-        # 4. total_water = self.water_detector.classify_water(idx, water_config.threshold)
-        # 5. flood_water = self.permanent_masker.apply_mask(total_water, mask_config, meta.bbox)
-        # 6. metrics = self.flood_analyzer.calculate_metrics(flood_water, meta.resolution_meters)
-        # 7. geojson = self.geojson_exporter.export_geojson(flood_water, meta)
-        raise NotImplementedError("Full pipeline execution pending implementation of GIS providers.")
+        if water_config is None:
+            water_config = WaterDetectionConfig()
+        if mask_config is None:
+            mask_config = PermanentWaterMaskConfig()
+        if extraction_config is None:
+            extraction_config = FloodExtentExtractionConfig()
+
+        # 1. Ingest raster metadata and extract spectral bands
+        metadata = self.raster_processor.read_metadata(source_path)
+        bands = self.raster_processor.extract_bands(source_path, ["B03", "B08"])
+
+        # 2. Spectral NDWI surface water detection
+        surface_water = self.water_detector.detect_water_from_bands(
+            band_green=bands["B03"],
+            band_nir=bands["B08"],
+            metadata=metadata,
+            config=water_config,
+        )
+
+        # 3. Permanent water masking
+        if mask_config.mask_identifier and os.path.exists(mask_config.mask_identifier):
+            potential_flood = self.permanent_masker.mask_permanent_water(
+                detected_water=surface_water,
+                permanent_water=mask_config.mask_identifier,
+                metadata=metadata,
+                raster_processor=self.raster_processor,
+                config=mask_config,
+            )
+        else:
+            # When baseline mask path is not supplied, use zero permanent water
+            zero_perm = np.zeros(surface_water.water_mask.shape, dtype=np.uint8)
+            potential_flood = self.permanent_masker.mask_permanent_water(
+                detected_water=surface_water,
+                permanent_water=zero_perm,
+                metadata=metadata,
+                config=mask_config,
+            )
+
+        # 4 & 5. Flood extent extraction, metrics calculation, and GeoJSON export
+        extent_result = self.flood_extractor.extract_flood_extent(
+            flood_input=potential_flood,
+            metadata=metadata,
+            config=extraction_config,
+        )
+
+        return extent_result.to_response()
+

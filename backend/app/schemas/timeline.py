@@ -179,3 +179,11 @@ class FutureGapTimelineResponse(BaseModel):
     message: str = Field(
         default="Deterministic Future Response Gap Timeline projected successfully."
     )
+
+
+# Future Response-Gap Timeline Foundation (Step 6)
+from app.schemas.response_gap_timeline import (  # noqa: E402
+    DuplicateTimestampPolicy,
+    ResponseGapTimeline,
+    ResponseGapTimelinePoint,
+)

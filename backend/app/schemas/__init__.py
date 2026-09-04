@@ -20,11 +20,15 @@ from .flood import (
     WaterDetectionConfig,
     SurfaceWaterMaskResult,
     PermanentWaterMaskConfig,
+    PotentialFloodWaterResult,
+    PermanentWaterMaskResult,
     FloodExtentMetrics,
     GeoJSONGeometry,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    FloodExtentExtractionConfig,
     FloodExtentResponse,
+    FloodExtentResult,
 )
 
 from .what_if import (
@@ -44,6 +48,11 @@ from .timeline import (
     TimelinePoint,
     TimelineSummary,
     FutureGapTimelineResponse,
+)
+from .response_gap_timeline import (
+    DuplicateTimestampPolicy,
+    ResponseGapTimeline,
+    ResponseGapTimelinePoint,
 )
 from .gis import (
     ImpactLevel,
@@ -106,11 +115,15 @@ __all__ = [
     "WaterDetectionConfig",
     "SurfaceWaterMaskResult",
     "PermanentWaterMaskConfig",
+    "PotentialFloodWaterResult",
+    "PermanentWaterMaskResult",
     "FloodExtentMetrics",
     "GeoJSONGeometry",
     "GeoJSONFeature",
     "GeoJSONFeatureCollection",
+    "FloodExtentExtractionConfig",
     "FloodExtentResponse",
+    "FloodExtentResult",
 
     "ZoneModifier",
     "ScenarioChanges",
@@ -127,6 +140,9 @@ __all__ = [
     "TimelinePoint",
     "TimelineSummary",
     "FutureGapTimelineResponse",
+    "ResponseGapTimelinePoint",
+    "ResponseGapTimeline",
+    "DuplicateTimestampPolicy",
 
     "ImpactLevel",
     "BuildingFootprint",

@@ -317,3 +317,9 @@ class FutureGapTimelineService:
             critical_bottleneck_resources=bottlenecks,
             summary_narrative=narrative,
         )
+
+
+# Future Response-Gap Timeline Service Foundation (Step 6)
+from app.services.response_gap_timeline_service import (  # noqa: E402
+    FutureResponseGapTimelineService,
+)
