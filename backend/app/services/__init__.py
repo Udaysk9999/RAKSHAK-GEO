@@ -17,6 +17,21 @@ from .flood_service import (
 )
 from .flood_response_service import FloodResponseService
 from .city_gis_repository import CityGISRepository
+from .copilot import (
+    ToolDefinition,
+    ToolRegistry,
+    ToolExecutor,
+    default_tool_registry,
+    default_tool_executor,
+    get_grounding_context,
+    BaseLLMProvider,
+    MockLLMProvider,
+    OpenRouterLLMProvider,
+    LLMPlanResult,
+    get_copilot_provider,
+    CopilotService,
+    default_copilot_service,
+)
 
 __all__ = [
     "ResourceOptimizationService",
@@ -34,4 +49,17 @@ __all__ = [
     "FloodDetectionPipeline",
     "FloodResponseService",
     "CityGISRepository",
+    "ToolDefinition",
+    "ToolRegistry",
+    "ToolExecutor",
+    "default_tool_registry",
+    "default_tool_executor",
+    "get_grounding_context",
+    "BaseLLMProvider",
+    "MockLLMProvider",
+    "OpenRouterLLMProvider",
+    "LLMPlanResult",
+    "get_copilot_provider",
+    "CopilotService",
+    "default_copilot_service",
 ]

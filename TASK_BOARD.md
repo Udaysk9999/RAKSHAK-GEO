@@ -2,16 +2,11 @@
 
 ## 🔴 IN PROGRESS
 
-*(None — T-019 completed and verified)*
+*(None — T-020 completed and verified)*
 
 ---
 
 ## 🟡 READY
-
-### T-020 — LLM Copilot Integration
-Owner: UNASSIGNED
-Status: READY
-Depends on: T-015, T-016, T-017, T-018, T-019
 
 ### Phase 1 Step 4 — Permanent-Water Masking
 Owner: FRIEND-1
@@ -41,3 +36,4 @@ T-016 — Add Future Response Gap Timeline
 T-017 — Flood Impact + GIS Zone Intelligence
 T-018 — End-to-End Flood Pipeline Integration
 T-019 — PostGIS + City GIS Data Foundation
+T-020 — Grounded LLM Copilot Integration (Steps 1–6)

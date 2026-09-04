@@ -71,6 +71,21 @@ from .city_gis import (
     PopulationDemographic,
     CityGISInventorySummary,
 )
+from .copilot import (
+    CopilotRole,
+    CopilotMessage,
+    CopilotToolCall,
+    CopilotToolResult,
+    CopilotRequest,
+    CopilotResponse,
+    CityGISLayerType,
+    GetCityGISDataArgs,
+    AssessFloodGISImpactArgs,
+    OptimizeResourceAllocationArgs,
+    SimulateWhatIfScenarioArgs,
+    ProjectFutureGapTimelineArgs,
+    RunEndToEndFloodResponseArgs,
+)
 
 __all__ = [
     "ResourceQuantity",
@@ -135,4 +150,18 @@ __all__ = [
     "ShelterFacility",
     "PopulationDemographic",
     "CityGISInventorySummary",
+
+    "CopilotRole",
+    "CopilotMessage",
+    "CopilotToolCall",
+    "CopilotToolResult",
+    "CopilotRequest",
+    "CopilotResponse",
+    "CityGISLayerType",
+    "GetCityGISDataArgs",
+    "AssessFloodGISImpactArgs",
+    "OptimizeResourceAllocationArgs",
+    "SimulateWhatIfScenarioArgs",
+    "ProjectFutureGapTimelineArgs",
+    "RunEndToEndFloodResponseArgs",
 ]

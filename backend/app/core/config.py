@@ -1,6 +1,28 @@
-"""Application configuration settings."""
 import os
+from typing import Optional
 from pydantic import BaseModel, Field
+
+
+def _load_env_file():
+    """Load key-value pairs from .env into os.environ if present without external dependencies."""
+    for env_path in [".env", "../.env"]:
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+            except Exception:
+                pass
+
+
+_load_env_file()
 
 
 class Settings(BaseModel):
@@ -18,6 +40,12 @@ class Settings(BaseModel):
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "cityshield_gis")
     POSTGIS_ENABLED: bool = os.getenv("POSTGIS_ENABLED", "false").lower() in ("true", "1", "yes")
+
+    # LLM Copilot Configuration (T-020)
+    OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY", None)
+    COPILOT_MODEL: Optional[str] = os.getenv("COPILOT_MODEL", None)
+    OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    COPILOT_TIMEOUT_SECONDS: float = float(os.getenv("COPILOT_TIMEOUT_SECONDS", "15.0"))
 
     @property
     def DATABASE_URL(self) -> str:

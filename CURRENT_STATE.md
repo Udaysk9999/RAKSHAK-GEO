@@ -4,16 +4,42 @@ Last updated: September 3, 2026
 
 ## Overall Progress
 
-Phase: Phase 1 — Step 8 (T-019 Completed)
+Phase: Phase 1 — Step 9 (T-020 Completed)
 
 Status:
-█████████▌ 95%
+██████████ 100%
 
 ## Working / Verified in Repository
 
 ### Backend Core
 - FastAPI Core Framework: OPERATIONAL (`backend/app/main.py`)
 - Health Check: OPERATIONAL (`GET /api/health`)
+
+### Grounded LLM Copilot (T-020)
+- Architecture: OPERATIONAL (`backend/app/services/copilot/`)
+  - Grounded Conversational Router: LLM functions strictly as interface/router/explainer; existing CITYSHIELD services remain the spatial/numerical source of truth.
+  - Zero hallucinated calculations: no arbitrary SQL, no python eval/exec, no fabricated metrics.
+- 6-Tool Strict Allowlist: OPERATIONAL (`backend/app/services/copilot/tools.py`)
+  1. `get_city_gis_data` -> PostGIS / CityGISRepository
+  2. `assess_flood_gis_impact` -> GISFloodImpactService
+  3. `optimize_resource_allocation` -> ResourceOptimizationService
+  4. `simulate_what_if_scenario` -> WhatIfSimulationService
+  5. `project_future_gap_timeline` -> FutureGapTimelineService
+  6. `run_end_to_end_flood_response` -> FloodResponsePipelineService
+- Provider Abstraction: OPERATIONAL (`backend/app/services/copilot/provider.py`)
+  - `MockLLMProvider`: 100% deterministic offline provider for hermetic testing.
+  - `OpenRouterLLMProvider`: OpenAI-compatible live provider reading `OPENROUTER_API_KEY` and `COPILOT_MODEL`.
+  - Factory Selection: Automatically falls back to `MockLLMProvider` when key is absent without failure.
+- API Endpoints: OPERATIONAL (`backend/app/api/v1/endpoints/copilot.py`)
+  - `POST /api/v1/copilot/chat`: Process natural language disaster requests.
+  - `GET /api/v1/copilot/sample-payload`: Reference query and response payload with explicit `DEMO DATA` tagging.
+- Performance & Latency Optimization (Step 6):
+  - 1-call fast path (`fast_explanation=True`): single LLM request handles tool selection and argument extraction, followed by instant deterministic grounded explanation (0ms overhead).
+  - Average latency reduced from ~9.48s to ~3.20s (~66% reduction across live benchmark queries).
+  - Prompt tokens pruned by removing redundant tool markdown; context window bounded to recent turns.
+- Security Verification:
+  - `.env` excluded from Git via `.gitignore`.
+  - Zero API key material in logs, repr (`[REDACTED]`), or API response contracts.
 
 ### PostGIS & City GIS Data Foundation (T-019)
 - Configuration: OPERATIONAL (`backend/app/core/config.py`, PostgreSQL/PostGIS settings)
@@ -59,7 +85,7 @@ Status:
   - Reuses `GISFloodImpactService` and `ResourceOptimizationService` directly without logic duplication
 
 ### Test Suite
-- Total Tests: **88/88 PASSED, 0 FAILURES** across all repository test suites (City GIS Data Foundation, End-to-End Pipeline, GIS Impact, Optimization, What-If, Timeline, Flood Detection, Raster Ingestion, NDWI Detection)
+- Total Tests: **132/132 PASSED, 0 FAILURES** across all repository test suites (Copilot Live & Unit, Copilot Services & Tools, OpenRouter Provider, City GIS Data Foundation, End-to-End Pipeline, GIS Impact, Optimization, What-If, Timeline, Flood Detection, Raster Ingestion, NDWI Detection)
 
 ### Data & Contracts
 - Resource Quantities: ambulances, rescue boats, food packets, medical kits, personnel, custom items
@@ -68,4 +94,4 @@ Status:
 
 ## Ready Next Tasks
 - **Phase 1 Step 4 (Flood Pipeline)**: Implement Permanent-Water Masking (`BasePermanentWaterMasker`) to isolate newly flooded areas from baseline water bodies
-- **T-020**: LLM Copilot integration connecting to optimization, timeline, and GIS impact endpoints
+- **Frontend / Command Dashboard**: Connect React/Vite map interface to `/api/v1/copilot/chat` and spatial response layers
