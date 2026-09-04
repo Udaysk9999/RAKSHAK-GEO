@@ -49,6 +49,11 @@ from .timeline import (
     TimelineSummary,
     FutureGapTimelineResponse,
 )
+from .response_gap_timeline import (
+    DuplicateTimestampPolicy,
+    ResponseGapTimeline,
+    ResponseGapTimelinePoint,
+)
 from .gis import (
     ImpactLevel,
     BuildingFootprint,
@@ -120,6 +125,9 @@ __all__ = [
     "TimelinePoint",
     "TimelineSummary",
     "FutureGapTimelineResponse",
+    "ResponseGapTimelinePoint",
+    "ResponseGapTimeline",
+    "DuplicateTimestampPolicy",
 
     "ImpactLevel",
     "BuildingFootprint",
